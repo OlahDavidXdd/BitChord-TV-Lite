@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920"><title>BitChord TV Lite</title><link rel="stylesheet" href="style.css"></head>
+<body><header><h1>BitChord <span>TV Lite</span></h1><p>A small player for your music addons</p></header>
+<main><form id="settings"><label for="addon">Addon server URL</label><input id="addon" type="url" placeholder="https://your-soundcloud-addon.example" required><button>Save addon</button></form>
+<form id="search"><label for="query">Find music</label><input id="query" type="search" maxlength="300" placeholder="Song or artist" required><button>Search</button></form>
+<p id="status" role="status">Add your SoundCloud addon server to get started.</p><div id="results"></div></main>
+<footer><div id="now">Nothing playing</div><div><button id="previous">Previous</button><button id="toggle">Play / Pause</button><button id="next">Next</button><button id="backward">−10 seconds</button><button id="forward">+10 seconds</button></div><p id="time">0:00 / 0:00</p><audio id="audio" preload="none"></audio></footer>
+<script src="$WEBAPIS/webapis/webapis.js"></script><script src="app.js"></script></body></html>

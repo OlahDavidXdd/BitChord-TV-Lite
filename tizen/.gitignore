@@ -1,0 +1,4 @@
+dist/
+.buildResult/
+.project
+.settings/

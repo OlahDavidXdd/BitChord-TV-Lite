@@ -1,1 +1,23 @@
 # BitChord-TV-Lite
+
+A lightweight Samsung Tizen 5.0+ TV music player and a SoundCloud HTTP addon for [BitChord](https://github.com/kushagrasinghx/BitChord).
+
+- **[TV app and installation instructions](tizen/README.md)** — addon search, playback queue, remote navigation and Samsung AVPlay. The unsigned widget is about 5.5 KiB.
+- **[Download the unsigned TV widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true)** — requires signing with your Samsung TV certificate before installation.
+- **[SoundCloud addon setup](addons/soundcloud/README.md)** — run the Node server with your own SoundCloud API credentials, then enter its URL in the TV app or BitChord's addon settings.
+
+This reduced-feature client does not include the full Android app, YouTube, library sync or AI features. No physical Tizen TV playback testing has been performed. The SoundCloud addon is a server addon, not a browser extension.
+
+## Build and checks
+
+Requires Node 22+ and Python 3, with no npm install needed:
+
+```sh
+node --test addons/soundcloud/server.test.mjs
+node --check tizen/app/app.js
+python3 tizen/scripts/package.py
+```
+
+The package builder enforces a 1 MiB compressed size limit and writes an unsigned widget to `tizen/dist/`.
+
+Derived from the BitChord project; see [LICENSE](LICENSE). This repository contains the new addon and Tizen client rather than a copy of the full Android project.
