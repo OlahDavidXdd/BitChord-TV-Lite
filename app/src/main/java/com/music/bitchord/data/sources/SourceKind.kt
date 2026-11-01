@@ -127,6 +127,15 @@ enum class SourceKind(
         rank = 1,
     ),
 
+    SOUNDCLOUD(
+        label = "SoundCloud",
+        detail = "Free public SoundCloud tracks. Search via Search → Addons. No login or API key required.",
+        labels = listOf("Free", "Public tracks", "No login"),
+        needsServer = false,
+        canServeLossless = false,
+        rank = 4,
+    ),
+
     JIOSAAVN(
         label = "JioSaavn",
         detail = "Optional JioSaavn streams up to 320kbps AAC/MP4. Catalogue matching can select the wrong song.",

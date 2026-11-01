@@ -142,7 +142,7 @@ object SourceRegistry {
         // default is the policy: JioSaavn off, YouTube on.
         val seeded = stored + BUILT_IN_KINDS
             .filter { kind -> stored.none { it.kind == kind } }
-            .map { SourceConfig(kind = it) }
+            .map { SourceConfig(kind = it, allowDownloads = it != SourceKind.SOUNDCLOUD) }
 
         // The retired built-in module is removed, while a custom module entered
         // by the user is preserved.
@@ -501,6 +501,7 @@ object SourceRegistry {
         // Same protocol, same implementation — the kinds differ only in rank.
         SourceKind.CUSTOM_MODULE -> ModuleSource(config)
         SourceKind.MODULE -> ModuleSource(config)
+        SourceKind.SOUNDCLOUD -> SoundCloudSource(config)
         SourceKind.JIOSAAVN -> JioSaavnSource(config)
         SourceKind.YOUTUBE -> YouTubeSource(config)
     }
@@ -546,7 +547,7 @@ object SourceRegistry {
             .build()
             .toString()
 
-    private val BUILT_IN_KINDS = listOf(SourceKind.JIOSAAVN, SourceKind.YOUTUBE)
+    private val BUILT_IN_KINDS = listOf(SourceKind.JIOSAAVN, SourceKind.YOUTUBE, SourceKind.SOUNDCLOUD)
 
     private const val KEY_SOURCES = "sources"
     /** One-shot migration: existing users must explicitly opt in again. */

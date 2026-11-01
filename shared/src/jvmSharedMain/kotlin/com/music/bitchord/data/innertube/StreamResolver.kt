@@ -178,6 +178,9 @@ object StreamResolver {
 
     private val init by lazy { NewPipe.init(OkHttpDownloader()) }
 
+    /** Reuse the same downloader for built-in public extractors. */
+    fun initializeExtractor() { init }
+
     /**
      * The extractor's own leash on [Http.client].
      *

@@ -2171,7 +2171,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // Every enabled addon, including ones the connection's quality setting
         // skips for playback: their rows are still worth seeing, and the
         // search page dims them and says why on a tap — see `isBlocked` there.
-        val addons = SourceRegistry.active().filterIsInstance<AddonSource>()
+        val addons = SourceRegistry.active().filter { it is AddonSource || it.kind == com.music.bitchord.data.sources.SourceKind.SOUNDCLOUD }
         if (addons.isEmpty()) {
             _addonResults.value = UiState.Error(text(R.string.search_addons_none))
             return

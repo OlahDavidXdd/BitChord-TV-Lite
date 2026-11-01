@@ -286,11 +286,6 @@ fun SourcesScreen(
             }
 
             RowDivider()
-            androidx.compose.material3.TextButton(
-                onClick = { context.startActivity(Intent(context, com.music.bitchord.auth.soundcloud.SoundCloudLoginActivity::class.java)) },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Sign in with SoundCloud") }
-            RowDivider()
             AddSourceRow(
                 onClick = { onEditSource(SourceConfig(kind = SourceKind.ADDON)) },
             )
@@ -794,6 +789,7 @@ private fun SourceRow(
                 SourceKind.ADDON -> SfIcons.Extension
                 SourceKind.CUSTOM_MODULE -> SfIcons.Extension
                 SourceKind.MODULE -> SfIcons.Extension
+                SourceKind.SOUNDCLOUD -> SfIcons.Cloud
                 SourceKind.JIOSAAVN -> SfIcons.GraphicEq // or some other icon
                 SourceKind.YOUTUBE -> SfIcons.PlayCircle
             },
