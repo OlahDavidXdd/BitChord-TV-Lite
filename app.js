@@ -6,6 +6,7 @@
   function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
   var shell = el('tv-shell'), view = 'home', lastView = 'home', audio = el('audio');
   var tracks = [], current = -1, generation = 0, searchGeneration = 0, toastTimer, controlsTimer;
+  var external = null, publicClient = null;
   var av = window.webapis && window.webapis.avplay, usingAv = false, avPaused = false;
   var base = '', history = read('bitchord-tv-history', []), favorites = read('bitchord-tv-favorites', []), libraryRecent = false;
   try { base = localStorage.getItem('bitchord-addon') || ''; } catch (_) {}
@@ -36,11 +37,17 @@
   }
   Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (button) { button.onclick = function () { show(button.getAttribute('data-view'), false); }; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-go]'), function (button) { button.onclick = function () { show(button.getAttribute('data-go'), true); }; });
-  el('account').onclick = function () { show('settings', true); el('sc-login').focus(); };
+  el('account').onclick = function () { show('settings', true); el('open-youtube').focus(); };
   el('open-player').onclick = function () { show('playing', true); };
   el('close-player').onclick = function () { show(lastView, false); var tab = document.querySelector('#tabs [data-view="' + lastView + '"]'); if (tab) tab.focus(); };
   function controls() { el('view-playing').classList.add('controls-on'); clearTimeout(controlsTimer); controlsTimer = setTimeout(function () { if (document.activeElement && !el('transport').contains(document.activeElement)) el('view-playing').classList.remove('controls-on'); }, 6000); }
   function get(path, done) {
+    if (base === 'soundcloud:public') {
+      if (!publicClient) publicClient = SoundCloudPublic.create(window.SOUNDCLOUD_PUBLIC_BOOTSTRAP || {});
+      if (path === '/manifest.json') { done(null, { id: 'soundcloud.public', name: 'SoundCloud Public' }); return; }
+      var task = path.indexOf('/search?') === 0 ? publicClient.search(decodeURIComponent(path.split('q=')[1] || '')) : publicClient.stream(decodeURIComponent(path.slice(8)));
+      task.then(function (data) { done(null, data); }, function (error) { done(error.message); }); return;
+    }
     var xhr = new XMLHttpRequest(); xhr.open('GET', base + path); xhr.timeout = 20000;
     xhr.onload = function () { var data; try { data = JSON.parse(xhr.responseText); } catch (_) { done('Invalid addon response'); return; }
       if (xhr.status < 200 || xhr.status >= 300) { done(data.error || 'Addon request failed (' + xhr.status + ')'); return; } done(null, data); };
@@ -48,6 +55,7 @@
     xhr.ontimeout = function () { done('Addon timed out'); }; xhr.send();
   }
   function stop() {
+    if (external) { var old = external; external = null; old.stop(); }
     audio.pause(); audio.removeAttribute('src'); audio.load();
     if (av && usingAv) { try { av.stop(); av.close(); } catch (_) {} }
     usingAv = false; avPaused = false; el('toggle').textContent = '▶';
@@ -89,17 +97,21 @@
     };
     image.src = url;
   }
+  var imageObserver = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) { if (entry.isIntersecting || entry.intersectionRatio > 0) { var image = entry.target; image.src = image.getAttribute('data-src'); imageObserver.unobserve(image); } });
+  }, { rootMargin: '180px' }) : null;
   function renderCards(container, list) {
     container.textContent = '';
     list.forEach(function (track, index) {
       var card = document.createElement('button'); card.className = 'track-card'; card.setAttribute('aria-label', (track.title || 'Untitled') + ' by ' + (track.artist || 'Unknown artist'));
       var art = document.createElement('span'); art.className = 'card-art'; art.textContent = '♫'; var url = artURL(track);
-      if (url) { var image = document.createElement('img'); image.src = url; image.alt = ''; image.loading = 'lazy'; image.onerror = function () { image.hidden = true; }; art.appendChild(image); }
+      if (url) { var image = document.createElement('img'); if (imageObserver) image.setAttribute('data-src', url); else image.src = url; image.alt = ''; image.loading = 'lazy'; image.onerror = function () { image.hidden = true; }; art.appendChild(image); }
       var copy = document.createElement('span'); copy.className = 'card-copy'; var title = document.createElement('strong'); title.textContent = track.title || 'Untitled';
       var artist = document.createElement('small'); artist.textContent = track.artist || ''; copy.appendChild(title); copy.appendChild(artist); card.appendChild(art); card.appendChild(copy);
       card.onclick = function () { tracks = list.slice(); play(index); };
       container.appendChild(card);
-      if (url) artworkColor(url, function (color) { card.style.backgroundColor = color; });
+      if (url && imageObserver) imageObserver.observe(image);
+      if (url) image.onload = function () { artworkColor(url, function (color) { card.style.backgroundColor = color; }); };
     });
   }
   function renderSaved() {
@@ -141,11 +153,12 @@
     if (track.streamURL) start(null, { url: track.streamURL }); else get('/stream/' + encodeURIComponent(track.id), start);
   }
   function toggle() {
+    if (external) { external.toggle(); controls(); return; }
     if (usingAv) { try { if (avPaused) av.play(); else av.pause(); avPaused = !avPaused; el('toggle').textContent = avPaused ? '▶' : 'Ⅱ'; } catch (_) {} }
     else if (audio.src) { if (audio.paused) { var p = audio.play(); if (p) p.catch(function () { status('Playback failed'); }); } else audio.pause(); }
     else play(current < 0 ? 0 : current); controls();
   }
-  function seek(seconds) { try { if (usingAv) av.seekTo(Math.max(0, Math.min(av.getDuration(), av.getCurrentTime() + seconds * 1000))); else if (isFinite(audio.duration)) audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + seconds)); } catch (_) {} controls(); }
+  function seek(seconds) { if (external) { external.seek(seconds); controls(); return; } try { if (usingAv) av.seekTo(Math.max(0, Math.min(av.getDuration(), av.getCurrentTime() + seconds * 1000))); else if (isFinite(audio.duration)) audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + seconds)); } catch (_) {} controls(); }
   function clearQueue() { ++generation; ++searchGeneration; stop(); tracks = []; current = -1; el('results').textContent = ''; el('now').textContent = 'Nothing playing'; el('player-empty').hidden = false; el('player-stage').hidden = true; el('transport').hidden = true; renderSaved(); }
   el('settings').onsubmit = function (event) {
     event.preventDefault(); var value = el('addon').value.trim().replace(/\/manifest\.json\/?$/, '').replace(/\/+$/, '');
@@ -174,7 +187,7 @@
   };
   var genres = [['Pop', '#774744'], ['Electronic', '#3b4566'], ['Hip-Hop', '#59476d'], ['Rock', '#465b64'], ['Jazz', '#6c5140'], ['Classical', '#4d5967'], ['Ambient', '#46615b'], ['Soul', '#724d60']];
   genres.forEach(function (genre) { var button = document.createElement('button'); button.className = 'genre-card'; button.style.backgroundColor = genre[1]; button.textContent = genre[0]; button.onclick = function () { show('search', true); el('query').value = genre[0]; var event = document.createEvent('Event'); event.initEvent('submit', true, true); el('search').dispatchEvent(event); }; el('genres').appendChild(button); });
-  el('toggle').onclick = toggle; el('next').onclick = function () { play(current + 1); }; el('previous').onclick = function () { play(Math.max(0, current - 1)); };
+  el('toggle').onclick = toggle; el('next').onclick = function () { if (external) external.next(); else play(current + 1); }; el('previous').onclick = function () { if (external) external.previous(); else play(Math.max(0, current - 1)); };
   el('backward').onclick = function () { seek(-10); }; el('forward').onclick = function () { seek(10); };
   audio.onended = function () { play(current + 1); }; audio.ontimeupdate = function () { showTime(audio.currentTime, audio.duration); };
   audio.onplay = function () { el('toggle').textContent = 'Ⅱ'; }; audio.onpause = function () { el('toggle').textContent = '▶'; };
@@ -185,7 +198,7 @@
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode, active = document.activeElement, typing = active && active.tagName === 'INPUT';
     if (key === 10009 || key === 27) {
-      event.preventDefault(); if (typing) active.blur(); else if (view === 'playing') el('close-player').click(); else if (!el('sc-pair').hidden) el('sc-cancel').click();
+      event.preventDefault(); if (typing) active.blur(); else if (view === 'playing') el('close-player').click(); 
       else if (active && !el('tabs').contains(active)) { var tab = document.querySelector('#tabs [data-view="' + view + '"]'); if (tab) tab.focus(); }
       else if (view !== 'home') { show('home', false); document.querySelector('#tabs [data-view="home"]').focus(); }
       else { try { tizen.application.getCurrentApplication().exit(); } catch (_) {} } return;
@@ -194,7 +207,7 @@
     if (key === 413) { ++generation; stop(); status('Stopped'); } if (key === 417) seek(10); if (key === 412) seek(-10); if (key === 427) play(current + 1); if (key === 428) play(Math.max(0, current - 1));
     if (typing || key < 37 || key > 40) return;
     event.preventDefault(); if (view === 'playing') controls();
-    var selector = !el('sc-pair').hidden ? '#sc-pair button,#sc-pair a' : 'input,button,a,summary';
+    var selector = 'input,button,a,summary';
     var items = Array.prototype.slice.call(document.querySelectorAll(selector)), rect = active && active.getBoundingClientRect();
     if (!rect) return; var ox = rect.left + rect.width / 2, oy = rect.top + rect.height / 2, best, score = Infinity;
     items.forEach(function (item) { if (item === active || item.disabled || !item.getClientRects().length) return;
@@ -205,6 +218,17 @@
     });
     if (best) { best.focus(); best.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
   });
-  window.BitChordPlayer = { clearAddon: function () { base = ''; el('addon').value = ''; clearQueue(); try { localStorage.removeItem('bitchord-addon'); } catch (_) {} status('Addon removed'); }, show: show };
+  window.BitChordPlayer = {
+    notify: status,
+    enableSoundCloud: function (helper) {
+      base = helper || 'soundcloud:public'; el('addon').value = helper || ''; clearQueue();
+      try { localStorage.setItem('bitchord-addon', base); } catch (_) {} show('search', true); status('SoundCloud public search enabled — no login required');
+    },
+    external: function (controller, title) {
+      clearQueue(); external = controller; el('player-empty').hidden = true; el('player-stage').hidden = true; el('transport').hidden = false;
+      el('now').textContent = title || 'SoundCloud'; show('playing', true);
+    },
+    externalTime: showTime,
+    clearAddon: function () { base = ''; el('addon').value = ''; clearQueue(); try { localStorage.removeItem('bitchord-addon'); } catch (_) {} status('Addon removed'); }, show: show };
   show('home', false); renderSaved(); document.querySelector('#tabs [data-view="home"]').focus();
 })();
