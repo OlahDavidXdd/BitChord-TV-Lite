@@ -27,7 +27,7 @@
     "spotify": "via optional helper (catalogue search, audio matched on YouTube); official Spotify TV app launch also available",
     "glass_effects": "optional in Settings; off by default",
     "path": "tizen/releases/BitChord-TV-Lite-unsigned.wgt",
-    "size_bytes": 249165,
-    "sha256": "5afe592d6a5b39a4ad5c77227c23c555696788c15d62e8d4ea4c0d437244df8e"
+    "size_bytes": 250050,
+    "sha256": "f971cf7faaa5557c18a47c062f22c335a10779520d1b4d208840dfde0bd469df"
   }
 }
