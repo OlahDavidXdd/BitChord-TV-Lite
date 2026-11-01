@@ -3,10 +3,7 @@ set -euo pipefail
 integration_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 : "${ANDROID_HOME:?Set ANDROID_HOME to your Android SDK directory}"
 : "${BITCHORD_SOUNDCLOUD_AUTH_URL:?Set the HTTPS origin of the deployed SoundCloud OAuth service}"
-if [[ ! -f "$ANDROID_HOME/platforms/android-37/android.jar" ]]; then
-  echo 'This upstream BitChord revision requires Android SDK platform 37. Install it before building.' >&2
-  exit 1
-fi
+python3 "$integration_dir/prepare-sdk.py" "$ANDROID_HOME"
 checkout="$integration_dir/build/BitChord"
 mkdir -p "$integration_dir/build"
 if [[ ! -d "$checkout/.git" ]]; then

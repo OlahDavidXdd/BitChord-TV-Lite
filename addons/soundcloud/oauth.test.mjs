@@ -76,3 +76,10 @@ test('encrypted store refuses missing/wrong encryption key', async t => {
   assert.throws(() => new TokenStore(env.file, ''), /32 random bytes/);
   assert.throws(() => new TokenStore(env.file, randomBytes(32).toString('base64')), /Cannot decrypt/);
 });
+test('TV/browser pairing supports Authorization CORS preflight without cookies', async t => {
+  const env = await setup(t);
+  const response = await fetch(env.base + '/pair/device', { method: 'OPTIONS', headers: { Origin: 'https://tv.example', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' } });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get('access-control-allow-origin'), '*');
+  assert.match(response.headers.get('access-control-allow-headers'), /Authorization/);
+});

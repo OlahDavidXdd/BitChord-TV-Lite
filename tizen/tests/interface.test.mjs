@@ -7,7 +7,7 @@ const read = name => readFileSync(new URL(name, app), 'utf8');
 async function setup(t, routes = () => ({ status: 404, body: { error: 'Not found' } })) {
   const window = new Window({ url: 'https://preview.example', width: 1920, height: 1080, settings: { disableCSSFileLoading: true, disableJavaScriptFileLoading: true } });
   t.after(() => window.happyDOM.close());
-  window.document.write(read('index.html').replace(/<script[\s\S]*?<\/script>/g, ''));
+  window.document.write(read('index.html').replace(/<script[\s\S]*?<\/script>/g, '').replace('<link rel="stylesheet" href="style.css">', '<style>' + read('style.css') + '</style>'));
   const calls = [];
   window.XMLHttpRequest = class {
     headers = {};
@@ -47,6 +47,7 @@ test('addon search plays a real result with Samsung AVPlay, supports seek, favor
   assert.equal(ui.av.url, 'https://cdn.example/track.m3u8'); assert.equal(ui.el('player-title').textContent, 'Test Song');
   ui.el('toggle').click(); assert.equal(ui.av.state, 'PAUSED');
   ui.el('forward').click(); assert.equal(ui.av.position, 10000);
+  assert.notEqual(ui.window.getComputedStyle(ui.el('favorite').parentElement).display, 'none');
   ui.el('favorite').click(); assert.equal(ui.el('favorite').textContent, '♥');
   ui.el('close-player').click(); ui.window.BitChordPlayer.show('library'); assert.equal(ui.el('library-cards').querySelectorAll('button').length, 1);
   ui.window.BitChordPlayer.show('home'); assert.equal(ui.el('home-empty').hidden, true); assert.equal(ui.el('home-cards').querySelectorAll('button').length, 1);
@@ -67,7 +68,16 @@ test('TV phone pairing renders QR, connects addon automatically, and disconnect 
   ui.el('sc-disconnect').click(); assert.equal(ui.el('addon').value, ''); assert.equal(ui.window.localStorage.getItem('sc-session'), null);
 });
 test('Return on the player closes its screen while the song keeps playing', async t => {
-  const ui = await setup(t); ui.window.BitChordPlayer.show('playing');
+  const ui = await setup(t, request => {
+    if (request.url.includes('/manifest.json')) return { body: { id: 'test', name: 'Test' } };
+    if (request.url.includes('/search?')) return { body: { tracks: [{ id: '1', title: 'Song', artist: 'Artist' }] } };
+    return { body: { url: 'https://cdn.example/song.mp3', encrypted: false } };
+  });
+  ui.el('addon').value = 'https://music.example'; ui.submit('settings');
+  ui.window.BitChordPlayer.show('search'); ui.el('query').value = 'song'; ui.submit('search');
+  ui.el('results').querySelector('button').click();
+  assert.equal(ui.av.state, 'PLAYING');
   ui.document.dispatchEvent(new ui.window.KeyboardEvent('keydown', { keyCode: 10009, bubbles: true }));
-  assert.equal(ui.el('view-playing').hidden, true); assert.equal(ui.el('view-home').hidden, false);
+  assert.equal(ui.el('view-playing').hidden, true); assert.equal(ui.el('view-search').hidden, false);
+  assert.equal(ui.av.state, 'PLAYING');
 });

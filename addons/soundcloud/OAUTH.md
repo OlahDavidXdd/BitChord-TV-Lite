@@ -1,6 +1,6 @@
 # Publisher-hosted SoundCloud login service
 
-For the modified Android integration, users sign in on SoundCloud's website once. They do not enter developer API credentials or run a server themselves. The app publisher runs this service.
+For the modified Android integration and Tizen QR sign-in, users sign in on SoundCloud's website once. They do not enter developer API credentials or run a server themselves. The app publisher runs this service.
 
 ## Configure
 
@@ -31,3 +31,5 @@ Pairing links expire after ten minutes. Restarting during pairing requires a new
 The login service intentionally fails startup when required credentials or a valid encryption key are missing. It never uses extracted public client keys, collects SoundCloud passwords or embeds client secrets in an APK.
 
 See https://developers.soundcloud.com/docs/api/guide for OAuth application registration, PKCE and refresh-token requirements.
+
+The Tizen app uses the same pairing endpoints and polls while the user signs in on a phone. Browser clients receive CORS headers for Authorization-based requests; no ambient cookies are used. Configure the login origin in `tizen/app/config.js`, then rebuild the widget.

@@ -62,6 +62,33 @@
   function isFavorite(track) { var item = record(track); return favorites.some(function (saved) { return same(saved, item); }); }
   function favoriteState() { var saved = current >= 0 && tracks[current] && isFavorite(tracks[current]); el('favorite').textContent = saved ? '♥' : '♡'; el('favorite').classList.toggle('saved', !!saved); el('favorite').setAttribute('aria-label', saved ? 'Remove from favorites' : 'Favorite song'); }
   function remember(track) { var item = record(track); history = [item].concat(history.filter(function (old) { return !same(old, item); })).slice(0, 40); save('bitchord-tv-history', history); renderSaved(); }
+  var colorCache = {};
+  function artworkColor(url, done) {
+    if (colorCache[url]) { done(colorCache[url]); return; }
+    var image = new Image(); image.crossOrigin = 'anonymous';
+    image.onload = function () {
+      try {
+        var canvas = document.createElement('canvas'); canvas.width = 24; canvas.height = 24;
+        var context = canvas.getContext('2d'); context.drawImage(image, 0, 0, 24, 24);
+        var pixels = context.getImageData(0, 0, 24, 24).data, red = 0, green = 0, blue = 0, weight = 0;
+        for (var i = 0; i < pixels.length; i += 4) {
+          if (pixels[i + 3] < 100) continue;
+          var w = 1 + Math.floor((Math.max(pixels[i], pixels[i + 1], pixels[i + 2]) - Math.min(pixels[i], pixels[i + 1], pixels[i + 2])) / 16);
+          red += pixels[i] * w; green += pixels[i + 1] * w; blue += pixels[i + 2] * w; weight += w;
+        }
+        if (!weight) return;
+        var r = Math.floor(red / weight) / 255, g = Math.floor(green / weight) / 255, b = Math.floor(blue / weight) / 255;
+        var max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min, hue = 0;
+        if (delta) { if (max === r) hue = ((g - b) / delta + 6) % 6; else if (max === g) hue = (b - r) / delta + 2; else hue = (r - g) / delta + 4; }
+        var saturation = Math.max(0.30, Math.min(0.80, (max ? delta / max : 0) * 1.3)), value = 0.38;
+        var chroma = value * saturation, x = chroma * (1 - Math.abs(hue % 2 - 1)), m = value - chroma;
+        var rgb = hue < 1 ? [chroma, x, 0] : hue < 2 ? [x, chroma, 0] : hue < 3 ? [0, chroma, x] : hue < 4 ? [0, x, chroma] : hue < 5 ? [x, 0, chroma] : [chroma, 0, x];
+        var color = 'rgb(' + rgb.map(function (channel) { return Math.round((channel + m) * 255); }).join(',') + ')';
+        colorCache[url] = color; done(color);
+      } catch (_) { /* Artwork without CORS keeps the original neutral footer. */ }
+    };
+    image.src = url;
+  }
   function renderCards(container, list) {
     container.textContent = '';
     list.forEach(function (track, index) {
@@ -72,6 +99,7 @@
       var artist = document.createElement('small'); artist.textContent = track.artist || ''; copy.appendChild(title); copy.appendChild(artist); card.appendChild(art); card.appendChild(copy);
       card.onclick = function () { tracks = list.slice(); play(index); };
       container.appendChild(card);
+      if (url) artworkColor(url, function (color) { card.style.backgroundColor = color; });
     });
   }
   function renderSaved() {
