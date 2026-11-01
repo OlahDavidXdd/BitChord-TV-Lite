@@ -71,6 +71,20 @@ export function createSpotify({ clientId, clientSecret, youtube, fetcher = fetch
     artworkURL: ((t.album || {}).images || [])[1]?.url || ((t.album || {}).images || [])[0]?.url || '', permalinkURL: (t.external_urls || {}).spotify, uploader: (t.artists || [])[0]?.name || '', source: 'Spotify' });
   return {
     manifest: { id: 'bitchord.spotify', name: 'Spotify' },
+    async collections(q) {
+      q = String(q || '').trim(); if (!q) return { albums: [] };
+      const data = await api('/search?' + new URLSearchParams({ q, type: 'album', limit: '20', ...(market ? { market } : {}) }));
+      return { albums: ((data.albums || {}).items || []).filter(a => a && SP_ID.test(a.id || '')).map(a => ({ id: a.id, title: a.name, artist: (a.album_type === 'single' ? 'Single' : 'Album') + ' · ' + (a.artists || []).map(x => x.name).join(', '),
+        artworkURL: (a.images || [])[1]?.url || (a.images || [])[0]?.url || '', duration: 0, permalinkURL: (a.external_urls || {}).spotify, source: 'Spotify', kind: 'album' })) };
+    },
+    async playlist(id) {
+      if (!SP_ID.test(id)) throw fail(400, 'Invalid Spotify album id');
+      const album = await api('/albums/' + id), art = (album.images || [])[1]?.url || (album.images || [])[0]?.url || '';
+      const items = [...(album.tracks?.items || [])];
+      for (let next = album.tracks?.next; next && items.length < 200;) { const page = await api(next.replace('https://api.spotify.com/v1', '')); items.push(...(page.items || [])); next = page.next; }
+      const tracks = items.filter(t => t && SP_ID.test(t.id || '')).map(t => ({ ...map({ ...t, album: { images: album.images } }), artworkURL: art }));
+      tracks.forEach(t => { cap(meta, 300); meta.set(t.id, t); }); return { title: album.name || '', tracks };
+    },
     async search(q) {
       q = String(q || '').trim(); if (!q) return { tracks: [] };
       const data = await api('/search?' + new URLSearchParams({ q, type: 'track', limit: '30', ...(market ? { market } : {}) }));
@@ -120,6 +134,8 @@ export function createHelper({ soundcloud, youtube, spotify, fetcher = fetch }) 
       let body;
       if (rest === '/manifest.json') body = client.manifest || { id: 'bitchord.soundcloud', name: 'SoundCloud' };
       else if (rest === '/search') { const q = url.searchParams.get('q') || ''; if (q.length > 300) throw fail(400, 'Query too long'); body = await client.search(q); }
+      else if (rest === '/albums') { const q = url.searchParams.get('q') || ''; if (q.length > 300) throw fail(400, 'Query too long'); body = client.collections ? await client.collections(q) : { albums: [] }; }
+      else if (rest.startsWith('/playlist/') && client.playlist) body = await client.playlist(decodeURIComponent(rest.slice(10)));
       else if (rest.startsWith('/stream/')) body = await client.stream(decodeURIComponent(rest.slice(8)), { origin });
       else throw fail(404, 'Not found');
       res.end(JSON.stringify(body));

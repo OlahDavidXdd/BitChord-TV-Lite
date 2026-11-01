@@ -47,7 +47,9 @@
     if (base === 'soundcloud:public') {
       if (!publicClient) publicClient = SoundCloudPublic.create(window.SOUNDCLOUD_PUBLIC_BOOTSTRAP || {});
       if (path === '/manifest.json') { done(null, { id: 'soundcloud.public', name: 'SoundCloud Public' }); return; }
-      var task = path.indexOf('/search?') === 0 ? publicClient.search(decodeURIComponent(path.split('q=')[1] || '')) : publicClient.stream(decodeURIComponent(path.slice(8)));
+      var q = decodeURIComponent(path.split('q=')[1] || '');
+      var task = path.indexOf('/search?') === 0 ? publicClient.search(q) : path.indexOf('/albums?') === 0 ? publicClient.collections(q)
+        : path.indexOf('/playlist/') === 0 ? publicClient.playlist(decodeURIComponent(path.slice(10))) : publicClient.stream(decodeURIComponent(path.slice(8)));
       task.then(function (data) { done(null, data); }, function (error) { done(error.message); }); return;
     }
     var xhr = new XMLHttpRequest(); xhr.open('GET', base + path); xhr.timeout = 20000;
@@ -110,7 +112,7 @@
   var imageObserver = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) { if (entry.isIntersecting || entry.intersectionRatio > 0) { var image = entry.target; image.src = image.getAttribute('data-src'); imageObserver.unobserve(image); } });
   }, { rootMargin: '180px' }) : null;
-  function renderCards(container, list) {
+  function renderCards(container, list, pick) {
     container.textContent = '';
     list.forEach(function (track, index) {
       var card = document.createElement('button'); card.className = 'track-card'; card.setAttribute('aria-label', (track.title || 'Untitled') + ' by ' + (track.artist || 'Unknown artist'));
@@ -118,7 +120,7 @@
       if (url) { var image = document.createElement('img'); if (imageObserver) image.setAttribute('data-src', url); else image.src = url; image.alt = ''; image.loading = 'lazy'; image.decoding = 'async'; image.onerror = function () { image.hidden = true; }; art.appendChild(image); }
       var copy = document.createElement('span'); copy.className = 'card-copy'; var title = document.createElement('strong'); title.textContent = track.title || 'Untitled';
       var artist = document.createElement('small'); artist.textContent = track.artist || ''; copy.appendChild(title); copy.appendChild(artist); card.appendChild(art); card.appendChild(copy);
-      card.onclick = function () { tracks = list.slice(); play(index); };
+      card.onclick = function () { if (pick) pick(track, index); else { tracks = list.slice(); play(index); } };
       container.appendChild(card);
       if (url && imageObserver) imageObserver.observe(image);
     });
@@ -196,10 +198,23 @@
     var expected = base;
     get('/manifest.json', function (err, data) { if (base === expected) status(err || 'Connected to ' + (data.name || data.id)); });
   };
+  function openAlbum(item) {
+    var request = ++searchGeneration; status('Loading ' + (item.title || 'album') + '…');
+    get('/playlist/' + encodeURIComponent(item.id), function (err, data) {
+      if (request !== searchGeneration) return; if (err) { status(err); return; }
+      var list = data.tracks || []; renderCards(el('results'), list); el('search-empty').hidden = !!list.length;
+      el('search-heading').textContent = item.title || 'Album'; status(list.length + ' tracks');
+      var first = el('results').querySelector('button'); if (first) first.focus();
+    });
+  }
   el('search').onsubmit = function (event) {
     event.preventDefault(); if (!base) { status('Choose a music source in Settings first'); return; }
     var query = el('query').value.trim(); if (!query) return;
-    var request = ++searchGeneration; status('Searching…');
+    var request = ++searchGeneration; status('Searching…'); el('album-block').hidden = true;
+    get('/albums?q=' + encodeURIComponent(query), function (err, data) {
+      if (request !== searchGeneration || err || !data) return;
+      var albums = data.albums || []; el('album-block').hidden = !albums.length; renderCards(el('albums'), albums, openAlbum);
+    });
     get('/search?q=' + encodeURIComponent(query), function (err, data) {
       if (request !== searchGeneration) return; if (err) { status(err); return; }
       var results = data.tracks || []; renderCards(el('results'), results); el('search-empty').hidden = !!results.length;

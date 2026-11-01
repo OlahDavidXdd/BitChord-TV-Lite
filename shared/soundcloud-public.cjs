@@ -60,7 +60,39 @@
         duration: Number(track.duration || 0) / 1000, artworkURL: (track.artwork_url || (track.user || {}).avatar_url || '').replace('-large.', '-t300x300.'),
         permalinkURL: track.permalink_url, uploader: (track.user || {}).username || '', source: 'SoundCloud' };
     }
+    function artwork(item) { return ((item.artwork_url || ((item.tracks || [])[0] || {}).artwork_url || (item.user || {}).avatar_url || '')).replace('-large.', '-t300x300.'); }
+    function collection(item) {
+      var album = item.is_album || item.set_type === 'album', who = (item.user || {}).username || '';
+      return { id: String(item.id), title: item.title || '', artist: (album ? 'Album' : 'Playlist') + (who ? ' · ' + who : ''), artworkURL: artwork(item), duration: 0, permalinkURL: item.permalink_url, uploader: who, source: 'SoundCloud', kind: album ? 'album' : 'playlist' };
+    }
+    function chunks(ids) { var out = []; for (var i = 0; i < ids.length; i += 40) out.push(ids.slice(i, i + 40)); return out; }
+    var collections = Object.create(null);
     return {
+      // Albums and playlists that match the query (tracks come from search).
+      collections: function (query) {
+        query = String(query || '').trim(); if (!query) return Promise.resolve({ albums: [] });
+        if (query.length > 300) return Promise.reject(error('Query too long', 400));
+        if (collections[query] && Date.now() - collections[query].at < 120000) return Promise.resolve(collections[query].data);
+        function find(kind) { return api('/search/' + kind + '?q=' + encodeURIComponent(query) + '&limit=20').then(function (data) { return data.collection || []; }, function () { return []; }); }
+        return Promise.all([find('albums'), find('playlists_without_albums')]).then(function (lists) {
+          var seen = Object.create(null), rows = lists[0].concat(lists[1]).filter(function (item) { var key = String(item.id); if (!item.id || seen[key] || !(item.track_count > 0)) return false; seen[key] = true; return true; });
+          var data = { albums: rows.map(collection) }; if (Object.keys(collections).length >= 40) collections = Object.create(null);
+          collections[query] = { at: Date.now(), data: data }; return data;
+        });
+      },
+      // Every playable track of an album or playlist, including rows that only arrive as ids.
+      playlist: function (id) {
+        id = String(id); if (!/^\d+$/.test(id)) return Promise.reject(error('Invalid SoundCloud playlist id', 400));
+        return api('/playlists/' + id).then(function (set) {
+          var rows = set.tracks || [], stubs = rows.filter(function (row) { return row && row.id && !row.title; }).map(function (row) { return row.id; });
+          return Promise.all(chunks(stubs).map(function (ids) { return api('/tracks?ids=' + ids.join(',')).then(function (full) { return Array.isArray(full) ? full : []; }, function () { return []; }); })).then(function (parts) {
+            var byId = Object.create(null); parts.forEach(function (part) { part.forEach(function (track) { byId[String(track.id)] = track; }); });
+            var list = rows.map(function (row) { return row && !row.title && byId[String(row.id)] ? byId[String(row.id)] : row; }).filter(function (track) { return track && track.title && playable(track); });
+            list.forEach(function (track) { tracks[String(track.id)] = { at: Date.now(), data: track }; });
+            return { title: set.title || '', tracks: list.map(function (track) { var item = mapped(track); if (!item.artworkURL) item.artworkURL = artwork(set); return item; }) };
+          });
+        });
+      },
       search: function (query) {
         query = String(query || '').trim(); if (!query) return Promise.resolve({ tracks: [] });
         if (query.length > 300) return Promise.reject(error('Query too long', 400));

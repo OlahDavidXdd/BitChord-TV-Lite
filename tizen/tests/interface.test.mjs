@@ -36,9 +36,9 @@ test('YouTube Music and Spotify need the helper, then search through it', async 
   ui.el('yt-enable').click(); assert.match(ui.el('sc-status').textContent, /helper server URL/); assert.equal(ui.calls.length, 0);
   ui.el('sc-helper').value = 'http://192.168.1.10:8787/'; ui.submit('sc-helper-form');
   ui.el('yt-enable').click(); assert.equal(ui.window.localStorage.getItem('bitchord-addon'), 'http://192.168.1.10:8787/yt');
-  ui.el('query').value = 'x'; ui.submit('search'); assert.equal(ui.calls.at(-1).url, 'http://192.168.1.10:8787/yt/search?q=x'); assert.equal(ui.el('results').querySelectorAll('button').length, 1);
+  ui.el('query').value = 'x'; ui.submit('search'); assert.ok(ui.calls.some(c => c.url === 'http://192.168.1.10:8787/yt/search?q=x')); assert.equal(ui.el('results').querySelectorAll('button').length, 1);
   ui.el('sp-enable').click(); assert.equal(ui.window.localStorage.getItem('bitchord-addon'), 'http://192.168.1.10:8787/spotify');
-  ui.el('query').value = 'y'; ui.submit('search'); assert.match(ui.calls.at(-1).url, /\/spotify\/search\?q=y$/);
+  ui.el('query').value = 'y'; ui.submit('search'); assert.ok(ui.calls.some(c => /\/spotify\/search\?q=y$/.test(c.url)));
 });
 test('a stream the TV cannot prepare falls back to the next one, and AVPlay is always closed', async t => {
   const ui = await setup(t, request => request.url.includes('/search?') ? { body: { tracks: [{ id: '1', title: 'Song', artist: 'A' }] } } : request.url.includes('/manifest.json') ? { body: { id: 't', name: 'T' } }
@@ -125,4 +125,18 @@ test('public link fallback uses the official widget and stops it on suspend', as
   Object.defineProperty(ui.document, 'hidden', { value: true, configurable: true });
   ui.document.dispatchEvent(new ui.window.Event('visibilitychange'));
   assert.equal(calls.at(-1), 'pause'); assert.equal(ui.el('soundcloud-embed').hidden, true);
+});
+
+test('albums and playlists appear above the songs and open as a track list', async t => {
+  const ui = await setup(t, request => {
+    if (request.url.includes('/manifest.json')) return { body: { id: 't', name: 'T' } };
+    if (request.url.includes('/albums?')) return { body: { albums: [{ id: '9', title: 'Great Album', artist: 'Album · Band', kind: 'album' }] } };
+    if (request.url.includes('/playlist/9')) return { body: { title: 'Great Album', tracks: [{ id: '1', title: 'One', artist: 'Band' }, { id: '2', title: 'Two', artist: 'Band' }] } };
+    return { body: { tracks: [{ id: '5', title: 'Single', artist: 'Band' }] } };
+  });
+  ui.el('addon').value = 'https://music.example'; ui.submit('settings');
+  ui.window.BitChordPlayer.show('search'); ui.el('query').value = 'band'; ui.submit('search');
+  assert.equal(ui.el('album-block').hidden, false); assert.equal(ui.el('albums').querySelectorAll('button').length, 1);
+  ui.el('albums').querySelector('button').click();
+  assert.equal(ui.el('results').querySelectorAll('button').length, 2); assert.equal(ui.el('search-heading').textContent, 'Great Album');
 });

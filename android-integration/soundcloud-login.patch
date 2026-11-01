@@ -46,7 +46,7 @@ new file mode 100644
 index 0000000..a8dec37
 --- /dev/null
 +++ b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,71 @@
 +package com.music.bitchord.data.sources
 +
 +import android.net.Uri
@@ -75,11 +75,22 @@ index 0000000..a8dec37
 +    override suspend fun search(query: String, limit: Int, waitForAll: Boolean, request: StreamRequest?): List<Song> = withContext(Dispatchers.IO) {
 +        if (query.isBlank()) return@withContext emptyList()
 +        val key = query.trim()
-+        searches[key]?.takeIf { android.os.SystemClock.elapsedRealtime() - it.at < 300_000 }?.let { return@withContext it.rows.take(limit) }
++        searches[key]?.takeIf { android.os.SystemClock.elapsedRealtime() - it.at < 300_000 }?.let { return@withContext it.rows.take(maxOf(limit, 50)) }
 +        StreamResolver.initializeExtractor()
 +        val extractor = ServiceList.SoundCloud.getSearchExtractor(key, listOf("tracks"), "")
 +        extractor.fetchPage()
-+        val rows = extractor.initialPage.items.filterIsInstance<StreamInfoItem>()
++        // The first page alone holds only a handful of tracks, so keep paging until enough songs are collected.
++        val target = maxOf(limit, 50)
++        val found = ArrayList<StreamInfoItem>()
++        var page = extractor.initialPage
++        var pages = 0
++        while (true) {
++            found += page.items.filterIsInstance<StreamInfoItem>()
++            val next = page.nextPage
++            if (++pages >= 6 || found.size >= target || next == null) break
++            page = try { extractor.getPage(next) } catch (e: Exception) { break }
++        }
++        val rows = found.distinctBy { it.url }
 +            .filter { it.contentAvailability != ContentAvailability.PAID && it.contentAvailability != ContentAvailability.MEMBERSHIP }
 +            .map { item ->
 +                Song(videoId = SourceRegistry.trackKey(configId, item.url), title = item.name,
@@ -88,7 +99,7 @@ index 0000000..a8dec37
 +            }
 +        if (searches.size >= 100) searches.clear()
 +        searches[key] = Cached(android.os.SystemClock.elapsedRealtime(), rows)
-+        rows.take(limit)
++        rows.take(target)
 +    }
 +
 +    override suspend fun stream(trackId: String, request: StreamRequest): SourceStream? = withContext(Dispatchers.IO) {

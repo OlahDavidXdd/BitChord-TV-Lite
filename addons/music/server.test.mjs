@@ -44,3 +44,13 @@ test('helper routes sources, keeps the old SoundCloud root, proxies ranges and r
   assert.equal((await fetch(base + '/spotify/search?q=a')).status, 503);
   assert.equal((await fetch(base + '/yt/search?q=' + 'a'.repeat(301))).status, 400);
 });
+test('Spotify albums are searchable and list their tracks through the helper', async t => {
+  const youtube = createYouTube({ run: async () => 'https://rr.googlevideo.com/a\n' });
+  const spotify = createSpotify({ clientId: 'id', clientSecret: 's', youtube, fetcher: async url => url.includes('/api/token') ? json({ access_token: 't', expires_in: 3600 })
+    : url.includes('/search?') ? json({ albums: { items: [{ id: '4uLU6hMCjMI75M1A2tKUQC', name: 'LP', album_type: 'album', artists: [{ name: 'Rick' }], images: [{ url: 'big' }, { url: 'mid' }] }] } })
+    : json({ name: 'LP', images: [{ url: 'big' }, { url: 'mid' }], tracks: { items: [{ id: '5uLU6hMCjMI75M1A2tKUQC', name: 'T1', duration_ms: 100000, artists: [{ name: 'Rick' }] }], next: null } }) });
+  const server = createHelper({ soundcloud: {}, youtube, spotify }); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = 'http://127.0.0.1:' + server.address().port + '/spotify';
+  const albums = await (await fetch(base + '/albums?q=lp')).json(); assert.equal(albums.albums[0].artist, 'Album · Rick'); assert.equal(albums.albums[0].artworkURL, 'mid');
+  const set = await (await fetch(base + '/playlist/4uLU6hMCjMI75M1A2tKUQC')).json(); assert.equal(set.tracks[0].title, 'T1'); assert.equal(set.tracks[0].artworkURL, 'mid');
+});

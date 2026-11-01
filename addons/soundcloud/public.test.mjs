@@ -37,3 +37,13 @@ test('search returns up to 50 rows, de-duplicates and hydrates rows that only ca
  const urls=[];const api=create({clientId:id,request:async url=>{urls.push(url);if(url.includes('/tracks?ids=2'))return [track({id:2,title:'Hydrated'})];return {collection:[track({}),track({}),{id:2,kind:'track'}]};}});
  const result=await api.search('more');assert.ok(urls[0].includes('limit=50'));assert.deepEqual(result.tracks.map(t=>t.id),['123','2']);assert.equal(result.tracks[1].title,'Hydrated');
 });
+test('finds albums and playlists, and lists every track of one including id-only rows',async()=>{
+ const api=create({clientId:id,request:async url=>{
+  if(url.includes('/search/albums?'))return {collection:[{id:10,title:'Album',is_album:true,track_count:3,user:{username:'Band'},artwork_url:'https://i/x-large.jpg'},{id:11,title:'Empty',track_count:0}]};
+  if(url.includes('/search/playlists_without_albums?'))return {collection:[{id:12,title:'Mix',track_count:2,user:{username:'DJ'}},{id:10,title:'Album',track_count:3}]};
+  if(url.includes('/playlists/10'))return {title:'Album',tracks:[track({id:1}),{id:2,kind:'track'},{id:3,kind:'track'}]};
+  if(url.includes('/tracks?ids=2,3'))return [track({id:2,title:'Two'}),track({id:3,title:'Locked',policy:'SNIP'})];
+  throw Error('unexpected '+url);}});
+ const found=await api.collections('band');assert.deepEqual(found.albums.map(a=>[a.id,a.kind]),[['10','album'],['12','playlist']]);assert.equal(found.albums[0].artworkURL,'https://i/x-t300x300.jpg');
+ const set=await api.playlist('10');assert.deepEqual(set.tracks.map(t=>t.id),['1','2']);assert.equal(set.title,'Album');await assert.rejects(api.playlist('../x'),{status:400});
+});
