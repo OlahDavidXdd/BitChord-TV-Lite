@@ -1,3 +1,4 @@
+import { compatibleSoundCloud } from './compatible-soundcloud.mjs';
 import { createYouTube, createSpotify, createHelper } from './audio-helper.mjs';
 export { createYouTube, createSpotify, createHelper, runYtDlp } from './audio-helper.mjs';
 import { readFileSync } from 'node:fs';
@@ -15,18 +16,21 @@ export function musicServer({ audioHelper = false, request = async (url, body) =
   if (audioHelper) {
     const { create: sc } = createRequire(import.meta.url)('../../shared/soundcloud-public.cjs');
     const bootstrap = JSON.parse(readFileSync(new URL('../../shared/soundcloud-bootstrap.json', import.meta.url)));
-    const soundcloud = sc({ ...bootstrap, request });
+    const publicSoundcloud = sc({ ...bootstrap, request });
+    const soundcloud = process.env.SOUNDCLOUD_TRANSCODE === '1' ? compatibleSoundCloud(publicSoundcloud) : publicSoundcloud;
     const youtube = createYouTube();
     const spotify = createSpotify({ clientId: process.env.SPOTIFY_CLIENT_ID, clientSecret: process.env.SPOTIFY_CLIENT_SECRET, youtube, market: process.env.SPOTIFY_MARKET });
     audioHandler = createHelper({ soundcloud, youtube, spotify }).listeners('request')[0];
   }
   return createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-    if (req.method !== 'GET') { res.writeHead(405); res.end(JSON.stringify({ error: 'GET required' })); return; }
+    if (req.method !== 'GET' && !(audioHelper && req.method === 'HEAD')) { res.writeHead(405); res.end(JSON.stringify({ error: 'GET required' })); return; }
     try {
       const url = new URL(req.url, 'http://localhost');
       if (req.url.length > 2048) throw new Error('Request too long');

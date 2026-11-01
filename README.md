@@ -26,3 +26,13 @@ Android is development-signed, ARM64, Android 8+; signature, alignment and insta
 Automated interface/extractor tests and live public SoundCloud stream probes pass. Neither build has been tested on physical devices. The TV interface follows Android TV styling. Account login is deferred by request; full feature parity remains unfinished. Live YouTube endpoint testing was blocked by the build environment network proxy. Samsung network/CORS and embedded-player compatibility remain unverified.
 
 See [music integration setup and limits](addons/music/README.md). SoundCloud requests 50 tracks per page with Load more; unavailable/premium tracks remain excluded. TV filters Opus/Ogg and prefers explicit MP3/AAC over adaptive streams, then retries alternatives or opens the official player on decoder failure. This cannot guarantee every track is available on every TV.
+
+## Version 1.5 playback and catalogue fixes
+
+Android SoundCloud previously inherited the default lossless-only request even though public SoundCloud audio is lossy. Explicit SoundCloud selections now request its available public audio without a lossless substitution search. Source-backed HLS is recorded for Media3 manifest recovery, modern public MP3/AAC transcodings are resolved with track authorization, and failures refresh the URL/try another variant. If public playback still fails after retries, Android keeps the track/error visible rather than silently skipping it. Unavailable, paid-only, private and region-restricted uploads remain unavailable.
+
+Android Search → Addons now requests up to 200 SoundCloud songs. Search a name and choose **SoundCloud Albums** or **SoundCloud Artists** to open collections and artist pages. Song artist links open the SoundCloud page. Album tracks retain their collection identity. TV Search offers **SoundCloud Songs**, **Albums & Playlists** and **Artists**; Now Playing has **Open SoundCloud artist**. Artist pages provide tracks and their albums/playlists without stopping current TV playback. Large public playlists hydrate all metadata batches instead of dropping tracks after fifty.
+
+Spotify playlist tracks begin matching as each page arrives, with three concurrent requests and cached successful matches. Recent complete playlist/library metadata is reused for two minutes and keyed by the authenticated bearer, preventing reuse across accounts. Live private Spotify account timing remains unmeasured.
+
+A live SoundCloud check returned 200 search rows, 198 artist tracks, 20 artist albums and 27 artist playlists. Three seconds of an allowed AAC HLS stream decoded successfully using FFmpeg. This validates the sample stream, not every uploader or Samsung's hardware decoder. Actual phone/TV end-to-end testing remains pending.

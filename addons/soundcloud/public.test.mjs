@@ -50,3 +50,29 @@ test('search returns up to 50 rows, de-duplicates and hydrates rows that only ca
  const urls=[];const api=create({clientId:id,request:async url=>{urls.push(url);if(url.includes('/tracks?ids=2'))return [track({id:2,title:'Hydrated'})];return {collection:[track({}),track({}),{id:2,kind:'track'}]};}});
  const result=await api.search('more');assert.ok(urls[0].includes('limit=50'));assert.deepEqual(result.tracks.map(t=>t.id),['123','2']);assert.equal(result.tracks[1].title,'Hydrated');
 });
+
+test('SoundCloud artist and album browsing return real collections and keep artist identities',async()=>{
+ const api=create({clientId:id,request:async url=>{
+  const path=new URL(url).pathname;
+  if(path==='/users/7')return {id:7,username:'Artist'};
+  if(path==='/users/7/tracks')return {collection:[track({user:{id:7,username:'Artist',permalink_url:'https://soundcloud.com/artist'}})]};
+  if(path==='/users/7/albums'||path==='/users/7/playlists')return {collection:[{id:9,title:'Album',is_album:true,user:{username:'Artist'}}]};
+  if(path==='/search/users')return {collection:[{kind:'user',id:7,username:'Artist'}]};
+  if(path==='/search/playlists')return {collection:[{kind:'playlist',id:9,title:'Album',is_album:true}]};
+  if(path==='/playlists/9')return {title:'Album',tracks:[track({user:{id:7,username:'Artist'}})]};
+  throw Error('Unexpected endpoint');
+ }});
+ assert.equal((await api.browse('artist','artists')).items[0].type,'artist');
+ assert.equal((await api.browse('album','albums')).items[0].type,'album');
+ const artist=await api.artist('7');assert.equal(artist.collections.length,1);assert.equal(artist.tracks[0].artistId,'7');
+ assert.equal((await api.playlist('9')).tracks.length,1);await assert.rejects(api.artist('../private'),{status:400});
+});
+test('large albums hydrate every batch rather than silently dropping tracks after fifty',async()=>{
+ let batches=0;const api=create({clientId:id,request:async url=>{
+  const parsed=new URL(url);
+  if(parsed.pathname==='/playlists/5')return {title:'Large album',tracks:Array.from({length:120},(_,i)=>({id:i+1}))};
+  if(parsed.pathname==='/tracks'){batches++;return parsed.searchParams.get('ids').split(',').map(value=>track({id:Number(value)}));}
+  throw Error('Unexpected endpoint');
+ }});
+ assert.equal((await api.playlist('5')).tracks.length,120);assert.equal(batches,3);
+});

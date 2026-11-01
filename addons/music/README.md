@@ -20,3 +20,15 @@ Search caching and concurrent-request deduplication keep repeated work down. `np
 ## Existing audio helper routes
 
 The merged update also preserves `/yt`, `/spotify`, `/soundcloud` and root SoundCloud addon routes, with byte-range audio proxying. Install `yt-dlp` on the helper for native progressive YouTube audio (`python3 -m pip install -U yt-dlp`). Optional Spotify catalog search needs SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET on the server; public-link imports need neither. Choose the explicit helper source buttons in TV Settings. These routes do not implement user login.
+
+## Older Samsung TV audio compatibility
+
+If the TV still rejects SoundCloud AAC/HLS, install FFmpeg on the independently hosted helper and start it with compatible audio enabled:
+
+```
+HOST=0.0.0.0 PORT=8788 SOUNDCLOUD_TRANSCODE=1 npm start
+```
+
+Set that origin in TV Settings → Free helper server, then select SoundCloud. The helper converts allowed public streams to a cached, seekable MP3 before handing them to AVPlay. No phone or SoundCloud developer account is needed. First playback waits for conversion; repeat playback uses the cache. Set `FFMPEG` for a custom binary, `SOUNDCLOUD_CACHE_DIR` for the cache location or `SOUNDCLOUD_CA_FILE` for a custom trusted CA file. Cache entries expire after 30 minutes; the cache is bounded, and conversions time out rather than running indefinitely. This does not unlock paid/private/restricted tracks.
+
+The actual converter was tested with a live allowed SoundCloud AAC stream, and its MP3 output decoded successfully. Byte ranges, HEAD requests and concurrent-request deduplication have automated tests. Samsung hardware itself remains untested.

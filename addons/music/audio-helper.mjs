@@ -113,12 +113,16 @@ export function createHelper({ soundcloud, youtube, spotify, fetcher = fetch }) 
       const url = new URL(req.url, 'http://localhost');
       const match = /^(\/yt|\/spotify|\/soundcloud)(\/.*)?$/.exec(url.pathname), prefix = match ? match[1] : '', rest = match ? match[2] || '/' : url.pathname;
       const client = sources[prefix];
+      if ((prefix === '/soundcloud' || prefix === '') && rest.startsWith('/audio/') && client?.audio) { await client.audio(req, res, rest.slice(7)); return; }
       if (prefix === '/yt' && rest.startsWith('/audio/')) { await proxy(decodeURIComponent(rest.slice(7)), req, res); return; }
       res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Cache-Control', 'no-store');
       if (!client) throw fail(503, 'This source is not configured on the helper');
       const origin = (req.headers['x-forwarded-proto'] || 'http') + '://' + req.headers.host;
       let body;
       if (rest === '/manifest.json') body = client.manifest || { id: 'bitchord.soundcloud', name: 'SoundCloud' };
+      else if (rest === '/catalog/search' && client.browse) body = await client.browse(url.searchParams.get('q'), url.searchParams.get('type'));
+      else if (rest.startsWith('/artist/') && client.artist) body = await client.artist(rest.slice(8));
+      else if (rest.startsWith('/playlist/') && client.playlist) body = await client.playlist(rest.slice(10));
       else if (rest === '/search') { const q = url.searchParams.get('q') || ''; if (q.length > 300) throw fail(400, 'Query too long'); body = await client.search(q); }
       else if (rest.startsWith('/stream/')) body = await client.stream(decodeURIComponent(rest.slice(8)), { origin });
       else throw fail(404, 'Not found');

@@ -15,6 +15,7 @@
     if (open) BitChordPlayer.show('search', true);
   }
   ['addon', 'youtube', 'spotify'].forEach(function (name) { el('source-' + name).onclick = function () { choose(name, true); }; });
+  BitChordPlayer.chooseSearchSource = function (name) { choose(name, false); };
   el('music-youtube').onclick = function () { choose('youtube', true); };
   el('music-spotify').onclick = function () { choose('spotify', true); notify('Paste a public Spotify playlist, album or track link. Account login is coming later.'); };
   var enableSoundCloud = BitChordPlayer.enableSoundCloud;

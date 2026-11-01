@@ -49,18 +49,47 @@
     function hydrate(data) {
       var rows = data.collection || [], stubs = rows.filter(function (row) { return row && row.id && !row.title; }).map(function (row) { return row.id; });
       if (!stubs.length) return data;
-      return api('/tracks?ids=' + stubs.slice(0, 50).join(',')).then(function (full) {
-        var byId = Object.create(null); (Array.isArray(full) ? full : []).forEach(function (track) { byId[String(track.id)] = track; });
+      var batches = [], byId = Object.create(null), next = 0;
+      stubs = stubs.filter(function (value) { return /^\d+$/.test(String(value)); });
+      for (var i = 0; i < stubs.length; i += 50) batches.push(stubs.slice(i, i + 50));
+      function worker() {
+        var batch = batches[next++]; if (!batch) return Promise.resolve();
+        return api('/tracks?ids=' + batch.join(',')).then(function (full) {
+          (Array.isArray(full) ? full : []).forEach(function (track) { byId[String(track.id)] = track; });
+        }, function () {}).then(worker);
+      }
+      return Promise.all([worker(), worker(), worker()]).then(function () {
         data.collection = rows.map(function (row) { return row && !row.title && byId[String(row.id)] ? byId[String(row.id)] : row; }); return data;
-      }, function () { return data; });
+      });
     }
     function playable(track) { return track && track.streamable !== false && track.policy !== 'BLOCK' && track.policy !== 'SNIP' && track.access !== 'blocked' && track.access !== 'preview'; }
     function mapped(track) {
       return { id: String(track.id), title: track.title || '', artist: (track.publisher_metadata || {}).artist || (track.user || {}).username || '',
         duration: Number(track.duration || 0) / 1000, artworkURL: (track.artwork_url || (track.user || {}).avatar_url || '').replace('-large.', '-t300x300.'),
-        permalinkURL: track.permalink_url, uploader: (track.user || {}).username || '', source: 'SoundCloud' };
+        artistId: (track.user || {}).id ? String(track.user.id) : '', artistURL: (track.user || {}).permalink_url || '', permalinkURL: track.permalink_url, uploader: (track.user || {}).username || '', source: 'SoundCloud' };
     }
+    function collection(item) {
+      return { id: String(item.id), title: item.title || item.username || '', artist: item.kind === 'user' ? 'SoundCloud artist' : (item.user || {}).username || '', artworkURL: item.artwork_url || item.avatar_url || (item.user || {}).avatar_url || '', type: item.kind === 'user' ? 'artist' : item.is_album ? 'album' : 'playlist' };
+    }
+    function publicRows(data) { return Promise.resolve(hydrate(data)).then(function (full) { return (full.collection || []).filter(playable).filter(function (t) { return !!t.title; }).map(function (track) { tracks[String(track.id)] = { at: Date.now(), data: track }; return mapped(track); }); }); }
+    function id(value) { value = String(value); if (!/^\d+$/.test(value)) throw error('Invalid SoundCloud page id', 400); return value; }
     return {
+      browse: function (query, kind) {
+        if (!/^(artists|albums)$/.test(kind)) return Promise.reject(error('Choose artists or albums', 400));
+        query = String(query || '').trim(); if (!query || query.length > 300) return Promise.reject(error('Enter a search query', 400));
+        return api('/search/' + (kind === 'artists' ? 'users' : 'playlists') + '?q=' + encodeURIComponent(query) + '&limit=100').then(function (data) { return { title: kind === 'artists' ? 'SoundCloud Artists' : 'SoundCloud Albums & Playlists', items: (data.collection || []).map(collection) }; });
+      },
+      artist: function (artistId) {
+        try { artistId = id(artistId); } catch (e) { return Promise.reject(e); }
+        return Promise.all([api('/users/' + artistId), api('/users/' + artistId + '/tracks?limit=200').then(publicRows), api('/users/' + artistId + '/albums?limit=100'), api('/users/' + artistId + '/playlists?limit=100')]).then(function (all) {
+          var seen = Object.create(null), sets = (all[2].collection || []).concat(all[3].collection || []).filter(function (set) { if (seen[set.id]) return false; seen[set.id] = true; return true; });
+          return { title: all[0].username || 'SoundCloud Artist', tracks: all[1], collections: sets.map(collection) };
+        });
+      },
+      playlist: function (playlistId) {
+        try { playlistId = id(playlistId); } catch (e) { return Promise.reject(e); }
+        return api('/playlists/' + playlistId + '?representation=full').then(function (data) { return publicRows({ collection: data.tracks || [] }).then(function (rows) { return { title: data.title || 'SoundCloud Playlist', tracks: rows, collections: [] }; }); });
+      },
       search: function (query, offset) {
         query = String(query || '').trim(); offset = Math.max(0, Math.min(1000, Number(offset) || 0)); var cacheKey = query + ':' + offset; if (!query) return Promise.resolve({ tracks: [] });
         if (query.length > 300) return Promise.reject(error('Query too long', 400));

@@ -19,7 +19,7 @@ async function setup(t, routes = () => ({ status: 404, body: { error: 'Not found
     setListener(listener) { this.listener = listener; }, prepareAsync(done) { done(); }, play() { this.state = 'PLAYING'; }, pause() { this.state = 'PAUSED'; },
     getDuration() { return this.duration; }, getCurrentTime() { return this.position; }, seekTo(ms) { this.position = ms; } };
   window.webapis = { avplay: av }; window.BITCHORD_CONFIG = {};
-  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js']) window.eval(read(name));
+  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js', 'soundcloud-browse.js']) window.eval(read(name));
   return { window, document: window.document, calls, av, el: id => window.document.getElementById(id),
     submit(id) { window.document.getElementById(id).dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); } };
 }
@@ -175,4 +175,28 @@ test('SoundCloud opens the official player after native decoding fails', async t
  ui.el('addon').value='https://music.example';ui.submit('settings');ui.el('query').value='Song';ui.submit('search');ui.el('results').querySelector('button').click();
  ui.av.listener.onerror();await new Promise(resolve=>setTimeout(resolve,10));
  assert.equal(ui.el('soundcloud-embed').hidden,false);assert.match(ui.el('soundcloud-embed').querySelector('iframe').src,/w.soundcloud.com/);
+});
+
+test('SoundCloud artist opens with tracks and albums while the current song keeps playing',async t=>{
+ const row={id:123,title:'Song',streamable:true,policy:'ALLOW',permalink_url:'https://soundcloud.com/artist/song',user:{id:7,username:'Artist',permalink_url:'https://soundcloud.com/artist'},media:{transcodings:[{url:'https://api-v2.soundcloud.com/media/song',quality:'sq',preset:'aac_96k',format:{protocol:'hls',mime_type:'audio/mp4'}}]}};
+ const ui=await setup(t,request=>{
+  const path=new URL(request.url).pathname;
+  if(path==='/search/tracks')return {body:{collection:[row]}};
+  if(path==='/media/song')return {body:{url:'https://cdn.example/song.m3u8'}};
+  if(path==='/users/7')return {body:{id:7,username:'Artist'}};
+  if(path==='/users/7/tracks')return {body:{collection:[row]}};
+  if(path==='/users/7/albums'||path==='/users/7/playlists')return {body:{collection:[{id:9,title:'Album',is_album:true}]}};
+  if(path==='/playlists/9')return {body:{title:'Album',tracks:[row]}};
+  return {body:{collection:[]}};
+ });
+ ui.el('sc-free-enable').click();ui.el('query').value='Song';ui.submit('search');await new Promise(setImmediate);ui.el('results').querySelector('button').click();await new Promise(setImmediate);
+ assert.equal(ui.av.state,'PLAYING');assert.equal(ui.el('artist-page').hidden,false);ui.el('artist-page').click();await new Promise(setImmediate);
+ assert.equal(ui.av.state,'PLAYING');assert.equal(ui.el('search-heading').textContent,'Artist');assert.equal(ui.el('sc-page-actions').hidden,false);
+ ui.el('sc-page-albums').click();assert.equal(ui.el('results').querySelectorAll('button').length,1);assert.match(ui.el('results').textContent,/Album/);
+ ui.el('results').querySelector('button').click();await new Promise(setImmediate);assert.equal(ui.el('search-heading').textContent,'Album');assert.equal(ui.av.state,'PLAYING');
+});
+test('SoundCloud search offers albums and artist pages instead of only song rows',async t=>{
+ const ui=await setup(t,request=>({body:{collection:new URL(request.url).pathname==='/search/users'?[{id:7,kind:'user',username:'Artist'}]:[{id:9,kind:'playlist',title:'Album',is_album:true}]}}));
+ ui.el('query').value='Artist';ui.el('sc-mode-artists').click();await new Promise(setImmediate);assert.equal(ui.el('search-heading').textContent,'SoundCloud Artists');assert.match(ui.el('results').textContent,/Artist/);
+ ui.el('sc-mode-albums').click();await new Promise(setImmediate);assert.equal(ui.el('search-heading').textContent,'SoundCloud Albums & Playlists');assert.match(ui.el('results').textContent,/Album/);
 });

@@ -49,6 +49,34 @@ index 8c068c6..9191bd2 100644
  
      // ---- Compose (Material 3) ----
      val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+diff --git a/app/src/main/java/com/music/bitchord/MainActivity.kt b/app/src/main/java/com/music/bitchord/MainActivity.kt
+index fa8d624..9e1a2c8 100644
+--- a/app/src/main/java/com/music/bitchord/MainActivity.kt
++++ b/app/src/main/java/com/music/bitchord/MainActivity.kt
+@@ -2444,7 +2444,10 @@ private fun BitChordApp(
+         val current = player.song ?: return@LaunchedEffect
+         if (current.albumId != null && current.artistId != null) return@LaunchedEffect
+         linksLoading = true
+-        links = YtMusicRepository.trackLinks(current.videoId).getOrNull()
++        val source = SourceRegistry.parseTrackKey(current.videoId)
++        links = if (source != null) {
++            if (SourceRegistry.config(source.first)?.kind == com.music.bitchord.data.sources.SourceKind.SOUNDCLOUD) runCatching { com.music.bitchord.data.sources.SoundCloudCatalog.trackInfo(source.second) }.getOrNull() else null
++        } else YtMusicRepository.trackLinks(current.videoId).getOrNull()
+         linksLoading = false
+     }
+     val playerSong = player.song?.let { current ->
+@@ -4237,7 +4240,10 @@ private fun BitChordApp(
+             LaunchedEffect(heldSong.videoId, needsLinks) {
+                 if (!needsLinks) return@LaunchedEffect
+                 menuLinksLoading = true
+-                menuLinks = YtMusicRepository.trackLinks(heldSong.videoId).getOrNull()
++                val source = SourceRegistry.parseTrackKey(heldSong.videoId)
++                menuLinks = if (source != null) {
++                    if (SourceRegistry.config(source.first)?.kind == com.music.bitchord.data.sources.SourceKind.SOUNDCLOUD) runCatching { com.music.bitchord.data.sources.SoundCloudCatalog.trackInfo(source.second) }.getOrNull() else null
++                } else YtMusicRepository.trackLinks(heldSong.videoId).getOrNull()
+                 menuLinksLoading = false
+             }
+             val song = menuLinks?.takeIf { needsLinks && it.videoId == heldSong.videoId }?.let { extra ->
 diff --git a/app/src/main/java/com/music/bitchord/auth/SpotifyLoginScreen.kt b/app/src/main/java/com/music/bitchord/auth/SpotifyLoginScreen.kt
 index 25a454b..a6ac19f 100644
 --- a/app/src/main/java/com/music/bitchord/auth/SpotifyLoginScreen.kt
@@ -204,12 +232,150 @@ index 1476a73..7e204f9 100644
                      }
                  }
                  loadUrl("https://open.spotify.com/")
+diff --git a/app/src/main/java/com/music/bitchord/data/sources/SoundCloudCatalog.kt b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudCatalog.kt
+new file mode 100644
+index 0000000..7e57031
+--- /dev/null
++++ b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudCatalog.kt
+@@ -0,0 +1,132 @@
++package com.music.bitchord.data.sources
++
++import com.music.bitchord.data.Http
++import com.music.bitchord.data.innertube.StreamResolver
++import com.music.bitchord.data.model.*
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.withContext
++import okhttp3.Request
++import org.json.JSONArray
++import org.json.JSONObject
++import org.schabi.newpipe.extractor.services.soundcloud.SoundcloudParsingHelper
++import java.net.URLEncoder
++import com.music.bitchord.playback.StreamContainer
++import java.util.concurrent.ConcurrentHashMap
++
++/** Public SoundCloud browsing. All requests stay on the fixed SoundCloud API host. */
++object SoundCloudCatalog {
++    const val PREFIX = "soundcloud:"
++    data class Page(val title: String, val artwork: String?, val songs: List<Song>, val sections: List<HomeShelf>)
++    private val resolvedStreams = ConcurrentHashMap<String, Pair<Long, SourceStream>>()
++    private val failedStreams = ConcurrentHashMap<String, Int>()
++    fun retry(url: String) { resolvedStreams.remove(url); failedStreams[url] = (failedStreams[url] ?: 0) + 1 }
++    suspend fun stream(url: String): SourceStream = withContext(Dispatchers.IO) {
++        require(url.startsWith("https://soundcloud.com/") || url.startsWith("https://www.soundcloud.com/"))
++        resolvedStreams[url]?.takeIf { System.currentTimeMillis() - it.first < 45_000 }?.let { return@withContext it.second }
++        val track = api("/resolve?url=${enc(url)}")
++        check(track.optString("policy") !in setOf("BLOCK", "SNIP") && track.optBoolean("streamable", true)) { "SoundCloud restricts full playback of this track" }
++        val variants = rows(track.optJSONObject("media")?.optJSONArray("transcodings")).filter { item ->
++            val format = item.optJSONObject("format")
++            val signature = format?.optString("mime_type").orEmpty() + " " + item.optString("preset")
++            !signature.contains("opus", true) && !signature.contains("ogg", true) &&
++                (signature.contains("mp3") || signature.contains("aac") || signature.contains("audio/mp4") || signature.contains("audio/mpeg;" ) || signature.trim() == "audio/mpeg") &&
++                item.optString("quality") != "hq" && !item.optBoolean("snipped") && item.optString("url").startsWith("https://api-v2.soundcloud.com/media/")
++        }.sortedByDescending { if (it.optJSONObject("format")?.optString("protocol") == "progressive") 10 else 1 }
++        check(variants.isNotEmpty()) { "No public MP3/AAC stream is available for this SoundCloud track" }
++        val offset = (failedStreams[url] ?: 0) % variants.size
++        var result: SourceStream? = null
++        for (index in variants.indices) {
++            val variant = variants[(index + offset) % variants.size]
++            try {
++                val endpoint = variant.getString("url").removePrefix("https://api-v2.soundcloud.com")
++                val auth = track.optString("track_authorization").takeUnless { it.isBlank() || it == "null" }
++                val response = api(endpoint + (if ('?' in endpoint) "&" else "?") + if (auth != null) "track_authorization=" + enc(auth) else "")
++                val media = response.getString("url")
++                check(media.startsWith("https://"))
++                if (variant.optJSONObject("format")?.optString("protocol") == "hls") StreamContainer.declare(media, "hls")
++                val aac = variant.optString("preset").contains("aac") || variant.optJSONObject("format")?.optString("mime_type")?.contains("mp4") == true
++                result = SourceStream(url = media, format = StreamFormat(codec = if (aac) "aac" else "mp3"), durationSec = (track.optLong("duration") / 1000).toInt())
++                break
++            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
++            catch (_: Exception) { /* Try another public transcoding, never a preview or paid stream. */ }
++        }
++        val stream = result ?: error("SoundCloud could not resolve a public stream; try again later")
++        if (resolvedStreams.size > 100) resolvedStreams.clear()
++        resolvedStreams[url] = System.currentTimeMillis() to stream
++        stream
++    }
++    private fun enc(value: String) = URLEncoder.encode(value, "UTF-8")
++    private fun api(path: String): JSONObject {
++        require(path.startsWith("/") && !path.contains("\r") && !path.contains("\n"))
++        StreamResolver.initializeExtractor()
++        val url = "https://api-v2.soundcloud.com$path" + (if ('?' in path) "&" else "?") + "client_id=" + enc(SoundcloudParsingHelper.clientId())
++        return Http.client.newCall(Request.Builder().url(url).build()).execute().use { response ->
++            check(response.isSuccessful) { "SoundCloud request failed (${response.code})" }
++            JSONObject(response.body?.string() ?: error("Empty SoundCloud response"))
++        }
++    }
++    private fun rows(array: JSONArray?): List<JSONObject> = if (array == null) emptyList() else (0 until array.length()).mapNotNull { array.optJSONObject(it) }
++    private fun art(item: JSONObject): String? = item.optString("artwork_url").takeUnless { it.isBlank() || it == "null" }
++        ?: item.optString("avatar_url").takeUnless { it.isBlank() || it == "null" }
++        ?: item.optJSONObject("user")?.optString("avatar_url")?.takeUnless { it.isBlank() || it == "null" }
++    private fun configId() = SourceRegistry.configs.value.first { it.kind == SourceKind.SOUNDCLOUD }.id
++    fun song(item: JSONObject, source: String = configId()): Song? {
++        if (item.optString("policy") in setOf("BLOCK", "SNIP") || !item.optBoolean("streamable", true)) return null
++        val link = item.optString("permalink_url"); if (!link.startsWith("https://soundcloud.com/")) return null
++        val user = item.optJSONObject("user")
++        val artistUrl = user?.optString("permalink_url")?.takeIf { it.startsWith("https://soundcloud.com/") }
++        val duration = item.optLong("duration") / 1000
++        return Song(videoId = SourceRegistry.trackKey(source, link), title = item.optString("title"), artist = user?.optString("username").orEmpty(),
++            thumbnailUrl = art(item), artistId = artistUrl?.let { "${PREFIX}artist:$it" }, durationText = "%d:%02d".format(duration / 60, duration % 60), sourceQuality = "HIGH")
++    }
++    suspend fun trackInfo(url: String): Song? = withContext(Dispatchers.IO) {
++        require(url.startsWith("https://soundcloud.com/") || url.startsWith("https://www.soundcloud.com/"))
++        song(api("/resolve?url=${enc(url)}"))
++    }
++    suspend fun searchTracks(query: String, limit: Int, source: String): List<Song> = withContext(Dispatchers.IO) {
++        rows(api("/search/tracks?q=${enc(query)}&limit=${limit.coerceIn(1, 200)}").optJSONArray("collection")).mapNotNull { song(it, source) }.distinctBy { it.videoId }
++    }
++    private fun shelf(items: List<JSONObject>, artist: Boolean): HomeShelf = HomeShelf(
++        title = if (artist) "Artists" else "Albums & Playlists",
++        items = items.mapNotNull { item ->
++            val url = item.optString("permalink_url"); if (!url.startsWith("https://soundcloud.com/")) return@mapNotNull null
++            ShelfItem(title = item.optString(if (artist) "username" else "title"), subtitle = if (artist) "SoundCloud artist" else if (item.optBoolean("is_album")) "Album" else "Playlist",
++                thumbnailUrl = art(item), videoId = null, browseId = PREFIX + (if (artist) "artist:" else "playlist:") + url)
++        },
++    )
++    suspend fun page(id: String): Page = withContext(Dispatchers.IO) {
++        when {
++            id.startsWith("${PREFIX}search:") -> {
++                val mode = id.removePrefix("${PREFIX}search:").substringBefore(':')
++                val query = id.substringAfter("${PREFIX}search:$mode:")
++                val artists = mode == "artists"
++                val data = api("/search/${if (artists) "users" else "playlists"}?q=${enc(query)}&limit=100")
++                Page(query, null, emptyList(), listOf(shelf(rows(data.optJSONArray("collection")), artists)))
++            }
++            else -> {
++                val artist = id.startsWith("${PREFIX}artist:")
++                val url = id.removePrefix(PREFIX + if (artist) "artist:" else "playlist:")
++                require(url.startsWith("https://soundcloud.com/") && !url.contains('@')) { "Invalid SoundCloud page" }
++                val entity = api("/resolve?url=${enc(url)}")
++                if (artist) coroutineScope {
++                    val tracks = async { rows(api("/users/${entity.getLong("id")}/tracks?limit=200").optJSONArray("collection")) }
++                    val albums = async { rows(api("/users/${entity.getLong("id")}/albums?limit=100").optJSONArray("collection")) }
++                    val playlists = async { rows(api("/users/${entity.getLong("id")}/playlists?limit=100").optJSONArray("collection")) }
++                    Page(entity.optString("username"), art(entity), tracks.await().mapNotNull { song(it) }, listOf(shelf((albums.await() + playlists.await()).distinctBy { it.optLong("id") }, false)))
++                } else {
++                    val tracks = rows(entity.optJSONArray("tracks"))
++                    // Playlist responses can contain id-only stubs. Resolve those in batches.
++                    val full = tracks.chunked(50).flatMap { batch ->
++                        if (batch.all { it.has("title") }) batch else {
++                            val request = Request.Builder().url("https://api-v2.soundcloud.com/tracks?ids=" + batch.joinToString(",") { it.getLong("id").toString() } + "&client_id=" + enc(SoundcloudParsingHelper.clientId())).build()
++                            Http.client.newCall(request).execute().use { response -> check(response.isSuccessful); rows(JSONArray(response.body?.string())) }
++                        }
++                    }
++                    Page(entity.optString("title"), art(entity), full.mapNotNull { song(it)?.copy(albumId = id, albumName = entity.optString("title")) }, emptyList())
++                }
++            }
++        }
++    }
++}
 diff --git a/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt
 new file mode 100644
-index 0000000..f4e2af4
+index 0000000..0bee3fc
 --- /dev/null
 +++ b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,42 @@
 +package com.music.bitchord.data.sources
 +
 +import android.net.Uri
@@ -239,25 +405,7 @@ index 0000000..f4e2af4
 +        if (query.isBlank()) return@withContext emptyList()
 +        val key = query.trim()
 +        searches[key]?.takeIf { android.os.SystemClock.elapsedRealtime() - it.at < 300_000 }?.let { return@withContext it.rows.take(limit) }
-+        StreamResolver.initializeExtractor()
-+        val extractor = ServiceList.SoundCloud.getSearchExtractor(key, listOf("tracks"), "")
-+        extractor.fetchPage()
-+        val items = extractor.initialPage.items.toMutableList()
-+        var next = extractor.initialPage.nextPage
-+        var pages = 1
-+        while (items.size < limit.coerceAtMost(50) && org.schabi.newpipe.extractor.Page.isValid(next) && pages < 5) {
-+            val page = runCatching { extractor.getPage(next) }.getOrNull() ?: break
-+            items.addAll(page.items)
-+            next = page.nextPage
-+            pages++
-+        }
-+        val rows = items.filterIsInstance<StreamInfoItem>()
-+            .filter { it.contentAvailability != ContentAvailability.PAID && it.contentAvailability != ContentAvailability.MEMBERSHIP }
-+            .map { item ->
-+                Song(videoId = SourceRegistry.trackKey(configId, item.url), title = item.name,
-+                    artist = item.uploaderName, thumbnailUrl = item.thumbnails.maxByOrNull { it.width }?.url,
-+                    durationText = item.duration.takeIf { it > 0 }?.let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }, sourceQuality = "HIGH")
-+            }
++        val rows = SoundCloudCatalog.searchTracks(key, limit.coerceAtMost(200), configId)
 +        if (searches.size >= 100) searches.clear()
 +        searches[key] = Cached(android.os.SystemClock.elapsedRealtime(), rows)
 +        rows.take(limit)
@@ -267,19 +415,7 @@ index 0000000..f4e2af4
 +        if (request is StreamRequest.Lossless) return@withContext null
 +        val uri = Uri.parse(trackId)
 +        require(uri.scheme == "https" && uri.host in setOf("soundcloud.com", "www.soundcloud.com") && uri.userInfo == null) { "Invalid SoundCloud track URL" }
-+        StreamResolver.initializeExtractor()
-+        val info = StreamInfo.getInfo(ServiceList.SoundCloud, trackId)
-+        require(info.contentAvailability != ContentAvailability.PAID && info.contentAvailability != ContentAvailability.MEMBERSHIP) { "This track is restricted on SoundCloud" }
-+        val candidates = info.audioStreams.filter {
-+            it.isUrl && it.content.startsWith("https://") &&
-+                it.format?.suffix?.lowercase(Locale.ROOT) in setOf("mp3", "m4a", "mp4", "aac")
-+        }
-+        val cap = (request as? StreamRequest.Capped)?.maxKbps
-+        val selected = (if (cap != null) candidates.filter { it.averageBitrate <= cap } else candidates)
-+            .maxByOrNull { it.averageBitrate } ?: candidates.minByOrNull { it.averageBitrate } ?: return@withContext null
-+        val url = selected.content
-+        if (selected.deliveryMethod == DeliveryMethod.HLS) StreamContainer.declare(url, "hls")
-+        SourceStream(url = url, format = StreamFormat(codec = selected.format?.suffix ?: "mp3", kbps = selected.averageBitrate.takeIf { it > 0 }), durationSec = info.duration.takeIf { it > 0 }?.toInt())
++        SoundCloudCatalog.stream(trackId)
 +    }
 +}
 diff --git a/app/src/main/java/com/music/bitchord/data/sources/SourceKind.kt b/app/src/main/java/com/music/bitchord/data/sources/SourceKind.kt
@@ -332,8 +468,71 @@ index ceb73db..3e3b829 100644
  
      private const val KEY_SOURCES = "sources"
      /** One-shot migration: existing users must explicitly opt in again. */
+diff --git a/app/src/main/java/com/music/bitchord/data/sources/SourceResolver.kt b/app/src/main/java/com/music/bitchord/data/sources/SourceResolver.kt
+index 047cc53..bf80c46 100644
+--- a/app/src/main/java/com/music/bitchord/data/sources/SourceResolver.kt
++++ b/app/src/main/java/com/music/bitchord/data/sources/SourceResolver.kt
+@@ -214,7 +214,9 @@ object SourceResolver {
+         // what makes "my own FLAC of this, if I have one, else stream it"
+         // expressible.
+         // A row picked by hand is not up for substitution — see [MIX_PARAM].
+-        val picked = pickedMix != null && pinned is AddonSource
++        val pickedAddon = pickedMix != null && pinned is AddonSource
++        val pinnedSoundCloud = pinned?.kind == SourceKind.SOUNDCLOUD
++        val picked = pickedAddon || pinnedSoundCloud
+         if (!picked && request is StreamRequest.Lossless && pinned?.kind?.canServeLossless != true) {
+             for (source in rankedAbove(configId, active)) {
+                 if (!source.kind.canServeLossless) continue
+@@ -234,10 +236,10 @@ object SourceResolver {
+ 
+         if (pinned != null) {
+             attempt(pinned) {
+-                if (picked) {
++                if (pickedAddon) {
+                     (pinned as AddonSource).stream(trackId, request, stereoOnly = pickedMix == MIX_STEREO)
+                 } else {
+-                    pinned.stream(trackId, request)
++                    pinned.stream(trackId, if (pinnedSoundCloud && request is StreamRequest.Lossless) StreamRequest.Capped(320) else request)
+                 }
+             }
+                 ?.let { return it.copy(sourceConfigId = pinned.configId) }
+diff --git a/app/src/main/java/com/music/bitchord/playback/PlaybackService.kt b/app/src/main/java/com/music/bitchord/playback/PlaybackService.kt
+index 8dd24d1..2ac8d41 100644
+--- a/app/src/main/java/com/music/bitchord/playback/PlaybackService.kt
++++ b/app/src/main/java/com/music/bitchord/playback/PlaybackService.kt
+@@ -1427,6 +1427,7 @@ class PlaybackService : MediaLibraryService() {
+                         "No enabled source could serve ${dataSpec.uri.getQueryParameter("n")}"
+                     },
+                 )
++                mediaIdIn(dataSpec.uri)?.let { StreamContainer.served(it, stream.url) }
+                 val configId = dataSpec.uri.getQueryParameter("s")
+                 val sourceName = if (directYouTube) {
+                     "YouTube"
+@@ -4008,6 +4009,9 @@ class PlaybackService : MediaLibraryService() {
+         ) {
+             return
+         }
++        SourceRegistry.parseTrackKey(mediaId)?.let { (config, track) ->
++            if (SourceRegistry.config(config)?.kind == SourceKind.SOUNDCLOUD) com.music.bitchord.data.sources.SoundCloudCatalog.retry(track)
++        }
+         // An addon/JioSaavn stream gets one chance. If it fails after selection,
+         // retrying the ordinary item only lets the same deterministic lookup win
+         // again. Rebuild it as an explicit YouTube request instead. This also
+@@ -4425,6 +4429,12 @@ class PlaybackService : MediaLibraryService() {
+     private fun skipPastUnplayable(mediaId: String, reason: String) {
+         val exoPlayer = player ?: return
+         if (exoPlayer.currentMediaItem?.mediaId != mediaId) return
++        val source = SourceRegistry.parseTrackKey(mediaId)?.first?.let(SourceRegistry::config)
++        if (source?.kind == SourceKind.SOUNDCLOUD) {
++            exoPlayer.pause()
++            Toast.makeText(applicationContext, "SoundCloud could not play this track after retrying. It may be restricted, removed or unavailable. Choose another track or retry.", Toast.LENGTH_LONG).show()
++            return
++        }
+         if (!exoPlayer.hasNextMediaItem()) {
+             TrackLog.w("BitChord", "$reason — and nothing after it in the queue", about = mediaId)
+             return
 diff --git a/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt b/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt
-index d8427ad..5a164ed 100644
+index d8427ad..9db99e5 100644
 --- a/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt
 +++ b/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt
 @@ -2171,7 +2171,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -345,6 +544,116 @@ index d8427ad..5a164ed 100644
          if (addons.isEmpty()) {
              _addonResults.value = UiState.Error(text(R.string.search_addons_none))
              return
+@@ -2575,7 +2575,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
+ 
+         /** Per-addon budget for the Addons search tab; a slow addon is left out, not waited on. */
+         private const val ADDON_SEARCH_TIMEOUT_MS = 12_000L
+-        private const val ADDON_SEARCH_LIMIT = 20
++        private const val ADDON_SEARCH_LIMIT = 200
+ 
+         /** How many Spotify tracks are looked up on YouTube Music at once. */
+         private const val SPOTIFY_MATCH_PARALLELISM = 6
+@@ -2717,6 +2717,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
+             openSpotifyPage(browseId, title, subtitle, thumbnailUrl)
+             return
+         }
++        if (browseId.startsWith(com.music.bitchord.data.sources.SoundCloudCatalog.PREFIX)) {
++            _detailStack.value += DetailPage(browseId, title, subtitle, thumbnailUrl, UiState.Loading, if (browseId.startsWith("soundcloud:artist:")) BrowseType.ARTIST else type)
++            viewModelScope.launch {
++                val result = runCatching { com.music.bitchord.data.sources.SoundCloudCatalog.page(browseId) }
++                _detailStack.value = _detailStack.value.map { current ->
++                    if (current.browseId != browseId) current else result.fold(
++                        onSuccess = { page -> current.copy(title = page.title, thumbnailUrl = page.artwork ?: thumbnailUrl, songs = UiState.Success(page.songs), sections = page.sections) },
++                        onFailure = { current.copy(songs = UiState.Error(it.message ?: "SoundCloud page failed")) },
++                    )
++                }
++            }
++            return
++        }
+         val resolved = browseTypeOf(browseId, type)
+         _detailStack.value += DetailPage(
+             browseId = browseId,
+@@ -2889,6 +2902,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
+      * then arrive in order and swap the rows in place, so the page is usable
+      * before the last song has been found.
+      */
++    private val spotifyMatchCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Song>>()
++
+     private fun openSpotifyPage(browseId: String, title: String, subtitle: String, thumbnailUrl: String?) {
+         _detailStack.value += DetailPage(
+             browseId = browseId,
+@@ -2914,39 +2929,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
+                     if (it.browseId == browseId) it.copy(thumbnailUrl = cover) else it
+                 }
+             }
+-            val tracks = runCatching {
++            val gate = Semaphore(3)
++            val queued = mutableSetOf<String>()
++            val resolved = java.util.concurrent.ConcurrentHashMap<String, Song>()
++            val jobs = mutableListOf<Job>()
++            runCatching {
+                 SpotifyLibrary.tracks(playlistId) { soFar ->
+-                    setSongs(UiState.Success(soFar.map { it.asPendingSong() }))
+-                }
+-            }.getOrElse {
+-                setSongs(UiState.Error(it.message ?: text(R.string.failed)))
+-                return@launch
+-            }
+-            if (tracks.isEmpty()) {
+-                setSongs(UiState.Error(text(R.string.spotify_empty_tracks)))
+-                return@launch
+-            }
+-            val gate = Semaphore(SPOTIFY_MATCH_PARALLELISM)
+-            coroutineScope {
+-                tracks.forEachIndexed { index, track ->
+-                    launch {
+-                        gate.withPermit {
+-                            if (!open()) return@withPermit
+-                            val match = runCatching { SpotifyImporter.matchTrack(track) }.getOrNull()
+-                            val found = match?.copy(thumbnailUrl = match.thumbnailUrl ?: track.imageUrl)
+-                                ?: track.asPendingSong().let {
+-                                    it.copy(videoId = SPOTIFY_MISSING_PREFIX + track.id)
++                    val pending = soFar.map { track ->
++                        val cached = spotifyMatchCache[track.id]?.takeIf { System.currentTimeMillis() - it.first < 600_000 }?.second
++                        resolved[track.id] ?: cached ?: track.asPendingSong()
++                    }
++                    _detailStack.update { pages -> pages.map { page ->
++                        if (page.browseId == browseId) page.copy(songs = UiState.Success(soFar.map { track -> resolved[track.id] ?: spotifyMatchCache[track.id]?.takeIf { System.currentTimeMillis() - it.first < 600_000 }?.second ?: track.asPendingSong() })) else page
++                    } }
++                    soFar.forEachIndexed { index, track ->
++                        if (queued.add(track.id) && pending[index].videoId.startsWith(SPOTIFY_PENDING_PREFIX)) {
++                            jobs += viewModelScope.launch {
++                                gate.withPermit {
++                                    if (!open()) return@withPermit
++                                    val match = withTimeoutOrNull(15_000) { runCatching { SpotifyImporter.matchTrack(track) }.getOrNull() }
++                                    val found = match?.copy(thumbnailUrl = match.thumbnailUrl ?: track.imageUrl)
++                                        ?: track.asPendingSong().copy(videoId = SPOTIFY_MISSING_PREFIX + track.id)
++                                    resolved[track.id] = found
++                                    if (match != null) {
++                                        if (spotifyMatchCache.size > 1000) spotifyMatchCache.clear()
++                                        spotifyMatchCache[track.id] = System.currentTimeMillis() to found
++                                    }
++                                    _detailStack.update { pages -> pages.map { page ->
++                                        val list = (page.songs as? UiState.Success<List<Song>>)?.data
++                                        if (page.browseId == browseId && list != null) page.copy(songs = UiState.Success(list.map { song -> if (song.videoId == SPOTIFY_PENDING_PREFIX + track.id) found else song })) else page
++                                    } }
+                                 }
+-                            _detailStack.value = _detailStack.value.map { page ->
+-                                val list = (page.songs as? UiState.Success<List<Song>>)?.data
+-                                if (page.browseId == browseId && list != null && index < list.size) {
+-                                    page.copy(songs = UiState.Success(list.toMutableList().also { it[index] = found }))
+-                                } else page
+                             }
+                         }
+                     }
+                 }
++            }.onFailure { error ->
++                if (_detailStack.value.firstOrNull { it.browseId == browseId }?.songs !is UiState.Success) setSongs(UiState.Error(error.message ?: text(R.string.failed)))
+             }
++            jobs.forEach { it.join() }
+         }
+     }
+ 
 diff --git a/app/src/main/java/com/music/bitchord/ui/screens/SourcesScreen.kt b/app/src/main/java/com/music/bitchord/ui/screens/SourcesScreen.kt
 index 57dd2ad..b822406 100644
 --- a/app/src/main/java/com/music/bitchord/ui/screens/SourcesScreen.kt
@@ -392,7 +701,7 @@ index b036253..78e8ed2 100644
          <exclude domain="sharedpref" path="bitchord_auth_plain.xml" />
          <exclude domain="sharedpref" path="bitchord_sources.xml" />
 diff --git a/build.gradle.kts b/build.gradle.kts
-index eeca68e..86aa0ce 100644
+index eeca68e..fdb4c29 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
 @@ -41,8 +41,8 @@ buildscript {
@@ -401,8 +710,8 @@ index eeca68e..86aa0ce 100644
   */
 -extra["bitchordVersionCode"] = 36
 -extra["bitchordVersionName"] = "1.9"
-+extra["bitchordVersionCode"] = 38
-+extra["bitchordVersionName"] = "1.9-tv-services2"
++extra["bitchordVersionCode"] = 39
++extra["bitchordVersionName"] = "1.9-catalog3"
  
  /*
   * Bump this by hand before cutting each sideloaded test build ("beta2",
@@ -433,6 +742,77 @@ index fe2fa1e..f667a47 100644
      /**
       * The extractor's own leash on [Http.client].
       *
+diff --git a/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/spotify/SpotifyLibrary.kt b/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/spotify/SpotifyLibrary.kt
+index 2049718..92c91b5 100644
+--- a/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/spotify/SpotifyLibrary.kt
++++ b/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/spotify/SpotifyLibrary.kt
+@@ -69,11 +69,17 @@ object SpotifyLibrary {
+         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+             "Chrome/122.0.0.0 Safari/537.36"
+     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
++    private data class CachedTracks(val at: Long, val tracks: List<SpotifyTrack>)
++    private val trackCache = java.util.concurrent.ConcurrentHashMap<String, CachedTracks>()
++    @Volatile private var cachedPlaylists: Triple<String, Long, List<SpotifyPlaylist>>? = null
+     private val mediaType = "application/json; charset=utf-8".toMediaType()
+ 
+     /** Every playlist in the library, however many pages it takes. */
+     suspend fun playlists(): List<SpotifyPlaylist> = withContext(Dispatchers.IO) {
+         val headers = authHeaders()
++        val owner = headers.getValue("Authorization")
++        cachedPlaylists?.takeIf { it.first == owner && System.currentTimeMillis() - it.second < 120_000 }?.let { return@withContext it.third }
++
+         val collected = mutableListOf<SpotifyPlaylist>()
+         var offset = 0
+         while (true) {
+@@ -84,7 +90,9 @@ object SpotifyLibrary {
+         }
+         // Liked Songs is not a playlist to Spotify's library query, so it is
+         // always offered first rather than depending on it turning up there.
+-        listOf(SpotifyPlaylist(id = LIKED_ID, name = "Liked Songs", owner = null, imageUrl = LIKED_COVER)) + collected
++        val result = listOf(SpotifyPlaylist(id = LIKED_ID, name = "Liked Songs", owner = null, imageUrl = LIKED_COVER)) + collected
++        cachedPlaylists = Triple(owner, System.currentTimeMillis(), result)
++        result
+     }
+ 
+     /**
+@@ -97,6 +105,9 @@ object SpotifyLibrary {
+         onPage: (List<SpotifyTrack>) -> Unit = {},
+     ): List<SpotifyTrack> = withContext(Dispatchers.IO) {
+         val headers = authHeaders()
++        val cacheKey = headers.getValue("Authorization") + ":" + playlistId
++        trackCache[cacheKey]?.takeIf { System.currentTimeMillis() - it.at < 120_000 }?.let { onPage(it.tracks); return@withContext it.tracks }
++
+         val collected = mutableListOf<SpotifyTrack>()
+         var offset = 0
+         while (true) {
+@@ -110,6 +121,8 @@ object SpotifyLibrary {
+             onPage(collected.toList())
+             if (raw == 0 || offset >= total) break
+         }
++        if (trackCache.size >= 8) trackCache.clear()
++        trackCache[cacheKey] = CachedTracks(System.currentTimeMillis(), collected.toList())
+         collected
+     }
+ 
+diff --git a/sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/screens/SearchScreen.kt b/sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/screens/SearchScreen.kt
+index 478388c..fa05800 100644
+--- a/sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/screens/SearchScreen.kt
++++ b/sharedUi/src/jvmSharedMain/kotlin/com/music/bitchord/ui/screens/SearchScreen.kt
+@@ -263,6 +263,14 @@ fun SearchScreen(
+             modifier = Modifier.weight(1f).fillMaxWidth(),
+             contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding()),
+         ) {
++            if (searchingAddons && query.isNotBlank()) {
++                item {
++                    Row(Modifier.fillMaxWidth()) {
++                        OutlinedButton(onClick = { onBrowseClick(BrowseItem("soundcloud:search:albums:" + query.trim(), "SoundCloud Albums & Playlists", "SoundCloud", null, BrowseType.ALBUM)) }) { Text("SoundCloud Albums") }
++                        OutlinedButton(onClick = { onBrowseClick(BrowseItem("soundcloud:search:artists:" + query.trim(), "SoundCloud Artists", "SoundCloud", null, BrowseType.ARTIST)) }) { Text("SoundCloud Artists") }
++                    }
++                }
++            }
+             when {
+                 searchingLibrary || searchingAddons -> librarySearchResults(
+                     query = query.trim(),
 diff --git a/tv/build.gradle.kts b/tv/build.gradle.kts
 index 7ebc31e..0c2034f 100644
 --- a/tv/build.gradle.kts

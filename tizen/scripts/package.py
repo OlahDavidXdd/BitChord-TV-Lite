@@ -14,7 +14,7 @@ shutil.copyfile(root.parent / 'shared/soundcloud-public.cjs', source / 'soundclo
 bootstrap = json.loads((root.parent / 'shared/soundcloud-bootstrap.json').read_text())
 (source / 'soundcloud-bootstrap.js').write_text('window.SOUNDCLOUD_PUBLIC_BOOTSTRAP = ' + json.dumps(bootstrap) + ';\n')
 shutil.copyfile(root.parent / 'shared/music-public.cjs', source / 'music-public.js')
-files = ['config.xml', 'index.html', 'app.js', 'style.css', 'icon.png', 'config.js', 'soundcloud-public.js', 'soundcloud-bootstrap.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js', 'logo.svg']
+files = ['config.xml', 'index.html', 'app.js', 'style.css', 'icon.png', 'config.js', 'soundcloud-public.js', 'soundcloud-bootstrap.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js', 'soundcloud-browse.js', 'logo.svg']
 output = root / 'dist' / 'BitChord-TV-Lite-unsigned.wgt'
 output.parent.mkdir(exist_ok=True)
 with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:

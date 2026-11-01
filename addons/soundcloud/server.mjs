@@ -69,6 +69,9 @@ export function createServer(client) {
       const url = new URL(req.url, 'http://localhost');
       let body;
       if (url.pathname === '/manifest.json') body = manifest;
+      else if (url.pathname === '/catalog/search' && client.browse) body = await client.browse(url.searchParams.get('q'), url.searchParams.get('type'));
+      else if (url.pathname.startsWith('/artist/') && client.artist) body = await client.artist(url.pathname.slice(8));
+      else if (url.pathname.startsWith('/playlist/') && client.playlist) body = await client.playlist(url.pathname.slice(10));
       else if (url.pathname === '/search') {
         const q = url.searchParams.get('q') || '';
         if (q.length > 300) throw fail(400, 'Query too long');
