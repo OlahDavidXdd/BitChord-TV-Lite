@@ -3,6 +3,11 @@ package com.music.bitchord.data.canvas
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.webkit.WebResourceRequest
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
@@ -51,6 +56,7 @@ internal object SpotifyToken {
 
     @Volatile private var appContext: Context? = null
 
+    @Volatile private var tokenCookie: String? = null
     @Volatile private var cachedAccessToken: String? = null
     @Volatile private var accessTokenExpiresAtMs = 0L
     @Volatile private var cachedClientId: String? = null
@@ -89,6 +95,7 @@ internal object SpotifyToken {
         val cookie = AppSettings.spotifySpdcToken.value
         if (cookie.isBlank()) return null
 
+        if (tokenCookie != cookie) { invalidate(); tokenCookie = cookie }
         val now = System.currentTimeMillis()
         cachedAccessToken?.let { if (now < accessTokenExpiresAtMs - 30_000) return it }
 
@@ -136,15 +143,23 @@ internal object SpotifyToken {
 
         val cookieManager = CookieManager.getInstance().apply {
             setAcceptCookie(true)
-            setCookie("https://open.spotify.com/", "sp_dc=$cookie; Domain=.spotify.com; Path=/; Secure")
-            setCookie("https://accounts.spotify.com/", "sp_dc=$cookie; Domain=.spotify.com; Path=/; Secure")
-            flush()
+
         }
+        // setCookie is asynchronous: loading before its callback can mint an
+        // anonymous token even with a valid saved login.
+        for (origin in listOf("https://open.spotify.com/", "https://accounts.spotify.com/")) {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                cookieManager.setCookie(origin, "sp_dc=$cookie; Domain=.spotify.com; Path=/; Secure") {
+                    if (continuation.isActive) continuation.resume(Unit)
+                }
+            }
+        }
+        cookieManager.flush()
         // The player caches its token in web storage and skips a fresh
         // /api/token request if a live one is already sitting there, leaving
         // the hook with nothing to see — wipe storage so every harvest forces
         // a real mint.
-        runCatching { WebStorage.getInstance().deleteAllData() }
+        runCatching { WebStorage.getInstance().deleteOrigin("https://open.spotify.com") }
 
         var webView: WebView? = null
         return try {
@@ -155,17 +170,25 @@ internal object SpotifyToken {
                 cookieManager.setAcceptThirdPartyCookies(this, true)
                 addJavascriptInterface(TokenBridge(deferred), BRIDGE_NAME)
 
+                // onPageStarted can run after the site's first token request.
+                // A document-start hook is installed before Spotify's scripts.
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                    WebViewCompat.addDocumentStartJavaScript(this, HOOK_SCRIPT, setOf("https://open.spotify.com"))
+                }
                 webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                        request.url.scheme != "https" || request.url.host != "open.spotify.com"
+
                     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
-                        view.evaluateJavascript(HOOK_SCRIPT, null)
+                        if (android.net.Uri.parse(url.orEmpty()).host == "open.spotify.com") view.evaluateJavascript(HOOK_SCRIPT, null)
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
                         super.onPageFinished(view, url)
                         // Re-assert in case the player navigated client-side
                         // after the onPageStarted injection ran.
-                        view.evaluateJavascript(HOOK_SCRIPT, null)
+                        if (android.net.Uri.parse(url.orEmpty()).host == "open.spotify.com") view.evaluateJavascript(HOOK_SCRIPT, null)
                     }
                 }
                 loadUrl("https://open.spotify.com/")

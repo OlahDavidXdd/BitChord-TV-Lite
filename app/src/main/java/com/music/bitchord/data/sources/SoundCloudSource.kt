@@ -30,7 +30,16 @@ class SoundCloudSource(override val config: SourceConfig) : MusicSource, SourceR
         StreamResolver.initializeExtractor()
         val extractor = ServiceList.SoundCloud.getSearchExtractor(key, listOf("tracks"), "")
         extractor.fetchPage()
-        val rows = extractor.initialPage.items.filterIsInstance<StreamInfoItem>()
+        val items = extractor.initialPage.items.toMutableList()
+        var next = extractor.initialPage.nextPage
+        var pages = 1
+        while (items.size < limit.coerceAtMost(50) && org.schabi.newpipe.extractor.Page.isValid(next) && pages < 5) {
+            val page = runCatching { extractor.getPage(next) }.getOrNull() ?: break
+            items.addAll(page.items)
+            next = page.nextPage
+            pages++
+        }
+        val rows = items.filterIsInstance<StreamInfoItem>()
             .filter { it.contentAvailability != ContentAvailability.PAID && it.contentAvailability != ContentAvailability.MEMBERSHIP }
             .map { item ->
                 Song(videoId = SourceRegistry.trackKey(configId, item.url), title = item.name,
@@ -49,7 +58,10 @@ class SoundCloudSource(override val config: SourceConfig) : MusicSource, SourceR
         StreamResolver.initializeExtractor()
         val info = StreamInfo.getInfo(ServiceList.SoundCloud, trackId)
         require(info.contentAvailability != ContentAvailability.PAID && info.contentAvailability != ContentAvailability.MEMBERSHIP) { "This track is restricted on SoundCloud" }
-        val candidates = info.audioStreams.filter { it.isUrl && it.content.startsWith("https://") }
+        val candidates = info.audioStreams.filter {
+            it.isUrl && it.content.startsWith("https://") &&
+                it.format?.suffix?.lowercase(Locale.ROOT) in setOf("mp3", "m4a", "mp4", "aac")
+        }
         val cap = (request as? StreamRequest.Capped)?.maxKbps
         val selected = (if (cap != null) candidates.filter { it.averageBitrate <= cap } else candidates)
             .maxByOrNull { it.averageBitrate } ?: candidates.minByOrNull { it.averageBitrate } ?: return@withContext null

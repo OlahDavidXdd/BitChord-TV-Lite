@@ -2,6 +2,8 @@ package com.music.bitchord.auth
 
 import android.annotation.SuppressLint
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -105,6 +107,24 @@ fun SpotifyLoginScreen(
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
                 var sent = false
+                val handler = Handler(Looper.getMainLooper())
+                fun capture(view: WebView) {
+                    if (sent || view.url?.toUri()?.let { it.scheme == "https" && it.host == "open.spotify.com" } != true) return
+                    val raw = CookieManager.getInstance().getCookie("https://open.spotify.com") ?: return
+                    val token = raw.split(";").map { it.trim() }.firstOrNull { it.startsWith("sp_dc=") }
+                        ?.substringAfter("=")?.takeIf { it.isNotBlank() } ?: return
+                    sent = true
+                    handler.removeCallbacksAndMessages(null)
+                    view.visibility = View.GONE
+                    onConnected(token)
+                }
+                // Spotify sometimes completes sign-in through SPA navigation,
+                // which does not issue another onPageFinished callback.
+                val check = object : Runnable {
+                    override fun run() { capture(this@apply); if (!sent) handler.postDelayed(this, 1000) }
+                }
+                tag = handler
+                handler.postDelayed(check, 1000)
                 webViewClient = object : WebViewClient() {
                     // Spotify's own pages and the identity providers its sign-in
                     // hands off to; anything else is not part of logging in.
@@ -115,26 +135,14 @@ fun SpotifyLoginScreen(
 
                     override fun onPageFinished(view: WebView, url: String?) {
                         canGoBack = view.canGoBack()
-                        if (sent || url?.startsWith("https://open.spotify.com") != true) return
-                        val raw = CookieManager.getInstance().getCookie("https://open.spotify.com") ?: return
-                        val token = raw.split(";")
-                            .map { it.trim() }
-                            .firstOrNull { it.startsWith("sp_dc=") }
-                            ?.substringAfter("=")
-                            ?.takeIf { it.isNotBlank() }
-                            ?: return
-                        sent = true
-                        // Hide before handing over, so the web player this
-                        // landed on doesn't flash up as the overlay tears down.
-                        view.visibility = View.GONE
-                        onConnected(token)
+                        capture(view)
                     }
                 }
                 webView = this
                 loadUrl(LOGIN_URL)
             }
         },
-        onRelease = { it.destroy() },
+        onRelease = { (it.tag as? Handler)?.removeCallbacksAndMessages(null); it.stopLoading(); it.destroy() },
     )
 
     BackHandler(enabled = canGoBack) {
