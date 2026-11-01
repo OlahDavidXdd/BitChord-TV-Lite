@@ -7,11 +7,11 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 source = root / 'app'
 ET.parse(source / 'config.xml')
-files = ['config.xml', 'index.html', 'app.js', 'style.css', 'icon.png']
+files = ['config.xml', 'index.html', 'app.js', 'style.css', 'icon.png', 'config.js', 'qrcode.js', 'soundcloud-login.js', 'LICENSE-qrcode.txt', 'logo.svg']
 output = root / 'dist' / 'BitChord-TV-Lite-unsigned.wgt'
 output.parent.mkdir(exist_ok=True)
 with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-    for name in files:
+    for name in files + [p.relative_to(source).as_posix() for p in sorted((source / 'fonts').glob('*.woff2'))]:
         info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
         info.compress_type = zipfile.ZIP_DEFLATED
         info.external_attr = 0o100644 << 16

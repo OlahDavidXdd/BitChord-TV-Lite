@@ -4,11 +4,14 @@ A separate, deliberately small web client for BitChord HTTP addons, including `.
 
 ## Included
 
-Addon URL setup, track search, result queue with next/previous, playback, pause, seek, elapsed time, spatial D-pad focus, media keys, Return handling and saved addon URL. On Samsung TVs it uses AVPlay for native progressive/HLS playback; ordinary browsers use HTML audio for basic development. Playback stops when the application becomes hidden.
+The interface now follows the Android TV source: a 960×540 logical canvas, top pill tabs, the original logo and display fonts, 163 dp artwork cards, white focus platters and lifted cards, two-column Settings and a full-screen artwork player. Font subsets cover Latin, Greek, Cyrillic and punctuation; other scripts use the system fallback. This is a source-guided visual port, not a verified pixel-identical or full-feature port.
+
+
+SoundCloud phone sign-in with a QR code, addon URL setup, favorites, recent listening, track search, result queue with next/previous, playback, pause, seek, elapsed time, spatial D-pad focus, media keys, Return handling and saved addon URL. On Samsung TVs it uses AVPlay for native progressive/HLS playback; ordinary browsers use HTML audio for basic development. Playback stops when the application becomes hidden.
 
 ## Size
 
-The build contains only HTML, ES5 JavaScript, CSS, one 117px icon and `config.xml`. There are no npm dependencies, bundled browser, native libraries, music downloads, ONNX models, artwork cache or custom fonts. The packager enforces a **1 MiB** compressed budget. Measured unsigned package size is printed by the build; signing adds certificate overhead. TV storage usage includes platform metadata and runtime caches, so package size is not a promise of total installed size.
+The build contains HTML, ES5 JavaScript, CSS, one 117px icon, the original vector logo, subset display fonts, a QR encoder and `config.xml`. There are no production npm dependencies, bundled browser, native libraries, music downloads, ONNX models, artwork cache or bundled media. The packager enforces a **1 MiB** compressed budget. Measured unsigned package size is printed by the build; signing adds certificate overhead. TV storage usage includes platform metadata and runtime caches, so package size is not a promise of total installed size.
 
 This size reduction trades away full Android feature parity: no YouTube Music, account login, synced library, lyrics, AI Automix, vocal separation, EQ, downloads, casting or Listen Together. The original Android TV build is unchanged.
 
@@ -43,6 +46,10 @@ See Samsung's CLI and certificate instructions:
 https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/command-line-interface.html
 https://developer.samsung.com/smarttv/develop/getting-started/setting-up-sdk/creating-certificates.html
 
+## SoundCloud sign-in
+
+The app publisher must deploy the OAuth service described in `addons/soundcloud/OAUTH.md`. Set its HTTPS origin in `app/config.js` before packaging, or configure it under Settings → SoundCloud service. Choose SoundCloud sign-in, scan the QR code with your phone, and approve on SoundCloud’s website. The TV checks pairing status and registers its addon URL automatically. Access tokens refresh on the server. Disconnect revokes the session and clears the addon. The login service is not deployed or configured in the distributed package yet.
+
 ## Use
 
 Run the SoundCloud addon on a computer/server with valid API credentials (see its README). The TV cannot run a Node server. Enter the server's HTTPS base URL in the TV's **Addon server URL** field, save it, then search. Any compatible BitChord HTTP addon can also be used. The URL and media origins need network access, which is why the widget declares internet access to arbitrary origins. Use a trusted addon.
@@ -51,4 +58,4 @@ Arrow keys move focus, Enter activates buttons, and Return leaves input editing,
 
 ## Validation and remaining device checks
 
-`node --check tizen/app/app.js` checks syntax. The package script validates XML and enforces the byte budget. No Samsung device, emulator, signing certificate or Tizen SDK was available in the build environment. Before treating this as a release, test on a Tizen 5 TV: installation/signatures, remote focus and on-screen keyboard, SoundCloud search, MP3/HLS playback, next/previous/seek, Return and suspend. Availability also depends on SoundCloud access and the TV's codecs/TLS support.
+`node --check tizen/app/app.js` checks syntax. The package script validates XML and enforces the byte budget. Four DOM integration tests cover navigation, addon playback through a mocked AVPlay API, QR pairing, disconnection, favorites and history. Run `npm ci --prefix tizen && npm test --prefix tizen`. These are not Samsung hardware tests. No Samsung device, emulator, signing certificate or Tizen SDK was available in the build environment. Before treating this as a release, test on a Tizen 5 TV: installation/signatures, remote focus and on-screen keyboard, SoundCloud search, MP3/HLS playback, next/previous/seek, Return and suspend. Availability also depends on SoundCloud access and the TV's codecs/TLS support.
