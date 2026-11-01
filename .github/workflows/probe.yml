@@ -13,7 +13,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - name: SoundCloud (the TV's own client)
-        run: node .github/probe/probe.mjs
+        run: |
+          node .github/probe/probe.mjs
+          node .github/probe/streams.mjs
       - name: YouTube via yt-dlp (helper path)
         continue-on-error: true
         run: |
