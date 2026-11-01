@@ -58,11 +58,11 @@
     playbackFailed = null; clearTimeout(preparingTimer);
     if (external) { var old = external; external = null; old.stop(); }
     audio.pause(); audio.removeAttribute('src'); audio.load();
-    if (av && usingAv) { try { av.stop(); av.close(); } catch (_) {} }
+    if (av && usingAv) { try { av.stop(); } catch (_) {} try { av.close(); } catch (_) {} }
     usingAv = false; avPaused = false; el('toggle').textContent = '▶';
   }
   function time(n) { n = Math.max(0, Math.floor(n || 0)); return Math.floor(n / 60) + ':' + ('0' + n % 60).slice(-2); }
-  function showTime(position, duration) { el('time').textContent = time(position) + ' / ' + time(duration); el('progress').style.width = (duration > 0 ? Math.min(100, position / duration * 100) : 0) + '%'; }
+  function showTime(position, duration) { var label = time(position) + ' / ' + time(duration); if (el('time').textContent !== label) el('time').textContent = label; el('progress').style.transform = 'scaleX(' + (duration > 0 ? Math.min(1, position / duration) : 0) + ')'; }
   function artURL(track) { var url = track.artworkURL || track.albumArtworkURL || ''; return /^https?:\/\//i.test(url) ? url : ''; }
   function record(track) {
     return { id: track.id, title: track.title, artist: track.artist, artworkURL: artURL(track), duration: track.duration, source: track.source, uploader: track.uploader, permalinkURL: track.permalinkURL, _base: base };
@@ -113,7 +113,7 @@
     function failed(ticket) {
       if (request !== generation || failing || (ticket != null && ticket !== streamTicket)) return;
       failing = true; playbackFailed = null; clearTimeout(preparingTimer);
-      if (av && usingAv) try { av.stop(); av.close(); } catch (_) {}
+      if (av && usingAv) try { av.stop(); } catch (_) {} try { av.close(); } catch (_) {}
       usingAv = false; audio.pause(); audio.removeAttribute('src'); audio.load();
       setTimeout(function () {
         if (request !== generation) return; failing = false;
@@ -126,7 +126,7 @@
     function start(err, stream, retry) {
       if (request !== generation) return;
       if (err) { if (track.source === 'SoundCloud' && track.permalinkURL) failed(); else status(err); return; }
-      if (!retry) { candidates = stream.alternatives || []; candidateIndex = 0; }
+      if (!retry) { candidates = stream.alternatives || stream.alternates || []; candidateIndex = 0; }
       var ticket = ++streamTicket; playbackFailed = function () { failed(ticket); };
       if (!stream.url || !/^https?:\/\//i.test(stream.url) || (stream.encrypted && stream.encrypted !== 'false')) { status('This stream is not supported'); return; }
       try {
@@ -206,10 +206,10 @@
       else { try { tizen.application.getCurrentApplication().exit(); } catch (_) {} } return;
     }
     if (key === 10252 || key === 415 || key === 19) { event.preventDefault(); if (key === 415 && ((usingAv && !avPaused) || (!usingAv && !audio.paused))) return; if (key === 19 && ((usingAv && avPaused) || (!usingAv && audio.paused))) return; toggle(); }
-    if (key === 413) { ++generation; stop(); status('Stopped'); } if (key === 417) seek(10); if (key === 412) seek(-10); if (key === 427) play(current + 1); if (key === 428) play(Math.max(0, current - 1));
+    if (key === 413) { ++generation; stop(); status('Stopped'); } if (key === 417) seek(10); if (key === 412) seek(-10); if (key === 427) el('next').click(); if (key === 428) el('previous').click();
     if (typing || key < 37 || key > 40) return;
     event.preventDefault(); if (view === 'playing') controls();
-    var selector = 'input,button,a,summary';
+    var selector = ['#topbar', '#view-' + view].map(function (scope) { return scope + ' input,' + scope + ' button,' + scope + ' a,' + scope + ' summary'; }).join(',');
     var items = Array.prototype.slice.call(document.querySelectorAll(selector)), rect = active && active.getBoundingClientRect();
     if (!rect) return; var ox = rect.left + rect.width / 2, oy = rect.top + rect.height / 2, best, score = Infinity;
     items.forEach(function (item) { if (item === active || item.disabled || !item.getClientRects().length) return;
@@ -222,6 +222,7 @@
   });
   window.BitChordPlayer = {
     notify: status,
+    setSource: function (value, message) { base = value; el('addon').value = /^https?:/.test(base) ? base : ''; clearQueue(); try { localStorage.setItem('bitchord-addon', base); } catch (_) {} show('search', true); status(message); },
     cancelSearch: function () { ++searchGeneration; el('more-results').hidden = true; },
     catalog: function (list, heading, onSelect) {
       ++searchGeneration; el('more-results').hidden = true; show('search', false); renderCards(el('results'), list, onSelect);

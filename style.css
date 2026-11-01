@@ -10,3 +10,5 @@
 
 /* A visible official YouTube player; no hidden/background video playback. */
 #youtube-embed{position:absolute;left:200px;top:48px;width:560px;height:315px;z-index:2;background:#000}#youtube-embed iframe,#youtube-embed>div{width:100%;height:100%;border:0}#music-sources{margin-bottom:12px}#music-sources button{font-size:12px;padding:8px 14px}.track-card{transition:transform .12s ease,background-color .12s ease}#canvas-art{filter:none;opacity:.08}#youtube-embed[hidden]{display:none}
+
+#progress{width:100%;transform:scaleX(0);transform-origin:left center}

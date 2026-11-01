@@ -6,11 +6,17 @@
   var helper = read('sc-public-helper') || (window.BITCHORD_CONFIG || {}).soundCloudPublicHelperUrl || '';
   el('sc-helper').value = helper;
   el('sc-free-enable').onclick = function () { BitChordPlayer.enableSoundCloud(helper); };
+  function needHelper() {
+    if (helper) return true;
+    el('sc-status').textContent = 'Enter your helper server URL first (Free helper server below).'; BitChordPlayer.notify('Set the helper server URL first'); return false;
+  }
+  el('yt-enable').onclick = function () { if (needHelper()) BitChordPlayer.setSource(helper + '/yt', 'YouTube Music enabled through your helper'); };
+  el('sp-enable').onclick = function () { if (needHelper()) BitChordPlayer.setSource(helper + '/spotify', 'Spotify catalogue enabled; audio is matched on YouTube'); };
   el('sc-helper-form').onsubmit = function (event) {
     event.preventDefault(); var value = el('sc-helper').value.trim().replace(/\/+$/, '');
     if (value && !/^https?:\/\/[^\s]+$/i.test(value)) { el('sc-status').textContent = 'Enter an http:// or https:// helper URL, or leave blank for direct mode.'; return; }
     helper = value; write('sc-public-helper', helper); BitChordPlayer.enableSoundCloud(helper);
-    el('sc-status').textContent = helper ? 'Free helper saved. It needs no account credentials.' : 'Direct public SoundCloud enabled.';
+    el('sc-status').textContent = helper ? 'Helper saved. Choose YouTube Music or Spotify above.' : 'Direct public SoundCloud enabled.';
   };
   function glass(on) {
     el('tv-shell').classList.toggle('glass-on', on); el('glass-toggle').setAttribute('aria-pressed', String(on)); el('glass-value').textContent = on ? 'On' : 'Off'; write('bitchord-tv-glass', on ? 'on' : 'off');
