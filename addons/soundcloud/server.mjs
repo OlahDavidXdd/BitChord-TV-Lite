@@ -4,9 +4,10 @@ import { pathToFileURL } from 'node:url';
 export const manifest = { id: 'bitchord.soundcloud', name: 'SoundCloud', version: '1.0.0', resources: ['search', 'stream'], allowDownloads: false };
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
-export function createSoundCloud({ clientId, clientSecret, accessToken, fetcher = fetch } = {}) {
+export function createSoundCloud({ clientId, clientSecret, accessToken, getAccessToken, fetcher = fetch } = {}) {
   let token = accessToken, expires = accessToken ? Infinity : 0, refreshToken, pending;
   async function authenticate() {
+    if (getAccessToken) return getAccessToken();
     if (token && Date.now() < expires) return token;
     if (!pending) pending = (async () => {
       if (!clientId || !clientSecret) throw fail(503, 'Configure SoundCloud API credentials on the addon server');

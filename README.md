@@ -8,6 +8,10 @@ A lightweight Samsung Tizen 5.0+ TV music player and a SoundCloud HTTP addon for
 
 This reduced-feature client does not include the full Android app, YouTube, library sync or AI features. No physical Tizen TV playback testing has been performed. The SoundCloud addon is a server addon, not a browser extension.
 
+## Android sign-in integration (source preview)
+
+[Modified BitChord login integration](android-integration/README.md) adds a **Sign in with SoundCloud** flow rather than asking users to operate the addon server. It needs a publisher-hosted [OAuth service](addons/soundcloud/OAUTH.md) and registered SoundCloud application credentials. **No modified Android APK has been built successfully yet; this is source code, not a working APK release.**
+
 ## Build and checks
 
 Requires Node 22+ and Python 3, with no npm install needed:
