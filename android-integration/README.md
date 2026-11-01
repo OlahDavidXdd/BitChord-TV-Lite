@@ -2,7 +2,7 @@
 
 **A development-signed ARM64 APK has now been built successfully. Physical-device testing and live SoundCloud sign-in are still pending.**
 
-[Download the APK](../android/releases/BitChord-SoundCloud-arm64-debug.apk?raw=true) · [Full native source](https://github.com/OlahDavidXdd/BitChord-TV-Lite/tree/android-soundcloud)
+[Download the APK](../android/releases/BitChord-Android-arm64-debug.apk?raw=true) · [Full native source](https://github.com/OlahDavidXdd/BitChord-TV-Lite/tree/android-soundcloud)
 
 The intended experience is **install modified BitChord → Sources → Sign in with SoundCloud → sign in on SoundCloud's website → return to BitChord**. The integration adds the SoundCloud source automatically. User access and refresh tokens stay on the OAuth service; the device stores its addon session credential in encrypted preferences. Refreshes happen automatically on the service. A Disconnect button revokes the session and removes the source. No extra Android background service, API key entry, local HTTP URL or companion APK is involved.
 

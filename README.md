@@ -1,27 +1,47 @@
-# BitChord-TV-Lite
+# BitChord Android + Tizen TV
 
-A lightweight Samsung Tizen 5.0+ TV music player and a SoundCloud HTTP addon for [BitChord](https://github.com/kushagrasinghx/BitChord).
+Modified builds of [BitChord](https://github.com/kushagrasinghx/BitChord), with a full native Android APK, a lightweight Tizen 5 TV client, and a SoundCloud addon/login service.
 
-- **[TV app and installation instructions](tizen/README.md)** — addon search, playback queue, remote navigation and Samsung AVPlay. The unsigned widget is about 250 KiB, including display fonts and QR sign-in.
-- **[Download the unsigned TV widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true)** — requires signing with your Samsung TV certificate before installation.
-- **[SoundCloud addon setup](addons/soundcloud/README.md)** — run the Node server with your own SoundCloud API credentials, then enter its URL in the TV app or BitChord's addon settings.
+## Downloads
 
-This reduced-feature client does not include the full Android app, YouTube, library sync or AI features. No physical Tizen TV playback testing has been performed. The SoundCloud addon is a server addon, not a browser extension.
+- **[Android APK — ARM64](android/releases/BitChord-Android-arm64-debug.apk?raw=true)**: full native BitChord, including the original YouTube Music and Spotify integrations. Development-signed, Android 8.0 or newer. The file uses Git LFS; use this download link for the actual APK.
+- **[Samsung Tizen 5 widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true)**: approximately 251 KiB. Requires your Samsung TV certificate signing before installation.
+- **[Live TV interface preview](https://olahdavidxdd.github.io/BitChord-TV-Lite/)**.
+- **[Build checksums and provenance](builds/latest.json)**.
 
-## Android APK and SoundCloud sign-in
+## Integration status
 
-[Modified BitChord login integration](android-integration/README.md) adds a **Sign in with SoundCloud** flow rather than asking users to operate the addon server. It needs a publisher-hosted [OAuth service](addons/soundcloud/OAUTH.md) and registered SoundCloud application credentials. [Download the development-signed ARM64 APK](android/releases/BitChord-SoundCloud-arm64-debug.apk?raw=true). The full native app builds successfully, but device testing and live SoundCloud login are pending. The distributed APK has no login service configured; SoundCloud sign-in is explicitly disabled until the publisher configures one. [Full native source](https://github.com/OlahDavidXdd/BitChord-TV-Lite/tree/android-soundcloud).
+| Feature | Android APK | Tizen widget |
+| --- | --- | --- |
+| YouTube Music sign-in and playback | Original native integration retained; not account-tested here | Not implemented |
+| Spotify playlists and liked songs | Original native integration retained; tracks matched to YouTube Music | Not implemented |
+| SoundCloud sign-in | Added UI/service flow; inactive until publisher configures the login service | QR flow implemented; needs a configured login service |
+| Compatible HTTP addon search/playback | Included in original app | Implemented through Samsung AVPlay |
+| Original Android TV interface | Native Android project retained in source branch | Source-guided visual adaptation; not verified pixel-identical |
 
-## Build and checks
+Spotify's original integration reads playlists/liked songs and matches them to YouTube Music for playback. It is not direct Spotify audio streaming. The Tizen build is currently a smaller, reduced-feature client; its visual similarity does not establish feature parity.
 
-Requires Node 22+ and Python 3, with no npm install needed:
+**SoundCloud login is not live in the distributed builds.** No developer credentials or shared login service are embedded. The publisher must configure the HTTPS service described in [OAuth setup](addons/soundcloud/OAUTH.md). Users' passwords are never collected by BitChord.
+
+## Source and setup
+
+- [Full native Android source](https://github.com/OlahDavidXdd/BitChord-TV-Lite/tree/android-soundcloud).
+- [Android integration/build notes](android-integration/README.md).
+- [Tizen build, signing and installation](tizen/README.md).
+- [TV design reference and parity limits](tizen/DESIGN-PARITY.md).
+- [SoundCloud server addon](addons/soundcloud/README.md).
+
+The Android APK compiled successfully and passed APK signature and alignment verification. Physical Android/Tizen device tests and live account playback have not been performed. The APK is a development build; the widget is unsigned.
+
+## Checks
 
 ```sh
-node --test addons/soundcloud/server.test.mjs
-node --check tizen/app/app.js
+node --test addons/soundcloud/*.test.mjs
+npm ci --prefix tizen
+npm test --prefix tizen
 python3 tizen/scripts/package.py
 ```
 
-The package builder enforces a 1 MiB compressed size limit and writes an unsigned widget to `tizen/dist/`.
+The Tizen packager enforces a 1 MiB compressed budget. Its test dependencies are not bundled in the widget.
 
-Derived from the BitChord project; see [LICENSE](LICENSE). This repository contains the new addon and Tizen client rather than a copy of the full Android project.
+Derived from BitChord; see [LICENSE](LICENSE). The main branch contains TV/addon sources and downloads; `android-soundcloud` contains the full modified native app source.

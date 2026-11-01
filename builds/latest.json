@@ -1,0 +1,29 @@
+{
+  "release": "builds-v1.2.1",
+  "android_source_commit": "b1a1f32",
+  "android": {
+    "version": "1.9 (36)",
+    "architecture": "arm64-v8a",
+    "min_sdk": 26,
+    "signing": "development; v2 signature verified",
+    "youtube_music": "original native integration retained, not live-account tested",
+    "spotify": "original playlists/liked-song matching retained, not live-account tested",
+    "soundcloud": "login service not configured",
+    "binary_change": "Same verified native APK as v1.2, renamed to clarify that it includes all original integrations",
+    "path": "android/releases/BitChord-Android-arm64-debug.apk",
+    "size_bytes": 117407902,
+    "sha256": "101a9e3736b3ba5ac636fdd42cd038b9fae4c297bc06ef1e55ebbfd764976992"
+  },
+  "tizen": {
+    "version": "1.2.1",
+    "required_version": "5.0",
+    "signing": "unsigned; Samsung certificate signing required",
+    "youtube_music": "not implemented",
+    "spotify": "not implemented",
+    "soundcloud": "QR flow requires configured login service",
+    "path": "tizen/releases/BitChord-TV-Lite-unsigned.wgt",
+    "size_bytes": 256735,
+    "sha256": "b87d97a77bcb6ee1b90f7d424c6536b8b9b225e0476b4036ae6bdc3746cbd8f8"
+  },
+  "physical_device_testing": false
+}
