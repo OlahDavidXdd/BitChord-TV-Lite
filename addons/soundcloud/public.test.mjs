@@ -25,3 +25,15 @@ test('never selects paid HQ or snipped transcoding and refuses arbitrary API end
  let media=false;const api=create({clientId:id,request:async url=>{if(url.includes('/media/'))media=true;return track({media:{transcodings:[{url:streamUrl,quality:'hq',format:{protocol:'hls'}},{url:'https://evil.example/media/123',quality:'sq',format:{protocol:'hls'}}]}});}});
  await assert.rejects(api.stream('123'),{status:404});assert.equal(media,false);
 });
+test('sends the track authorization, skips Opus, orders progressive first and keeps fallbacks',async()=>{
+ const urls=[];const api=create({clientId:id,request:async url=>{if(url.includes('/media/')){urls.push(url);return {url:'https://cf.sndcdn.com/'+(url.includes('progressive')?'a.mp3':'b.m3u8')};}return track({track_authorization:'tok en',media:{transcodings:[
+  {url:'https://api-v2.soundcloud.com/media/o/stream/hls',quality:'sq',format:{protocol:'hls',mime_type:'audio/ogg; codecs="opus"'}},
+  {url:streamUrl,quality:'sq',format:{protocol:'hls',mime_type:'audio/mpeg'}},
+  {url:'https://api-v2.soundcloud.com/media/p/stream/progressive',quality:'sq',format:{protocol:'progressive',mime_type:'audio/mpeg'}}]}});}});
+ const stream=await api.stream('123');assert.equal(stream.url,'https://cf.sndcdn.com/a.mp3');assert.equal(stream.manifest,'none');assert.equal(stream.alternates.length,1);assert.equal(stream.alternates[0].manifest,'hls');
+ assert.equal(urls.length,2);assert.ok(urls.every(u=>u.includes('track_authorization=tok%20en')));
+});
+test('search returns up to 50 rows, de-duplicates and hydrates rows that only carry an id',async()=>{
+ const urls=[];const api=create({clientId:id,request:async url=>{urls.push(url);if(url.includes('/tracks?ids=2'))return [track({id:2,title:'Hydrated'})];return {collection:[track({}),track({}),{id:2,kind:'track'}]};}});
+ const result=await api.search('more');assert.ok(urls[0].includes('limit=50'));assert.deepEqual(result.tracks.map(t=>t.id),['123','2']);assert.equal(result.tracks[1].title,'Hydrated');
+});

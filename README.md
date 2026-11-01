@@ -3,7 +3,7 @@
 Independent Android and Samsung Tizen 5 builds. Neither device requires a phone bridge.
 
 - [Android APK](android/releases/BitChord-Android-arm64-release.apk?raw=true): original BitChord with built-in free public SoundCloud search and playback. Open Search → Addons and select SoundCloud. No SoundCloud developer account or paid API registration is needed. YouTube Music and Spotify retain the original Android integrations; live account testing is pending.
-- [Tizen widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true): public SoundCloud search/playback, remote navigation, favorites, history, and an optional glass appearance in Settings. YouTube and Spotify buttons launch their installed official TV apps; their accounts and libraries are **not integrated into BitChord**.
+- [Tizen widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true): public SoundCloud search/playback, remote navigation, favorites, history, and an optional glass appearance in Settings. YouTube Music and Spotify search/playback work through the optional `addons/music` helper (see its README); the official YouTube and Spotify TV apps can still be launched from Settings, and their accounts are **not integrated into BitChord**.
 - [Browser preview](https://olahdavidxdd.github.io/BitChord-TV-Lite/): interface preview; Samsung AVPlay and app launching require a TV.
 - [Native Android source](https://github.com/OlahDavidXdd/BitChord-TV-Lite/tree/android-soundcloud).
 
