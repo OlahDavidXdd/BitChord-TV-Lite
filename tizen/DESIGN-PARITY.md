@@ -16,4 +16,6 @@ The Tizen shell follows the checked-out Android TV implementation at upstream Bi
 
 This is a visual translation from source, not a certified pixel-for-pixel reproduction. Compose spring motion, artwork-derived color, every preference/theme, platform font fallback and device rendering can differ. No paired Samsung device or browser-control tool was available for screenshot comparison. DOM tests verify behavior, not visual equality.
 
-It is also not a complete Android runtime port: YouTube, lyrics, AI Automix, native effects, account-library sync and other unimplemented services are not represented as working features. Actual music appears after connecting a source and searching/playing; the signed-out Home page intentionally has the same empty-state structure rather than invented recommendations.
+It is also not a complete Android runtime port: private account libraries, lyrics, AI Automix, native effects, account-library sync and other unimplemented services are not represented as working features. Actual music appears after connecting a source and searching/playing; the signed-out Home page intentionally has the same empty-state structure rather than invented recommendations.
+
+Version 1.4 adds in-app public YouTube Music search/player and Spotify metadata imports matched to YouTube. Account sign-in remains deferred. Per-card artwork color sampling and large background blur were removed to reduce older-TV rendering work. No hardware timing claims are made.

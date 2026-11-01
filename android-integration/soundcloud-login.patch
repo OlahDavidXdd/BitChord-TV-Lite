@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 8c068c6..799e777 100644
+index 8c068c6..9191bd2 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -62,7 +62,10 @@ android {
@@ -41,12 +41,175 @@ index 8c068c6..799e777 100644
          resources {
              // SMBJ's BouncyCastle and jspecify both ship this descriptor.
              excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+@@ -261,6 +266,7 @@ val newPipeExtractorStripped = tasks.register<org.gradle.api.tasks.bundling.Jar>
+ dependencies {
+     implementation(project(":shared"))
+     implementation(project(":sharedUi"))
++    implementation("androidx.webkit:webkit:1.12.1")
+ 
+     // ---- Compose (Material 3) ----
+     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+diff --git a/app/src/main/java/com/music/bitchord/auth/SpotifyLoginScreen.kt b/app/src/main/java/com/music/bitchord/auth/SpotifyLoginScreen.kt
+index 25a454b..a6ac19f 100644
+--- a/app/src/main/java/com/music/bitchord/auth/SpotifyLoginScreen.kt
++++ b/app/src/main/java/com/music/bitchord/auth/SpotifyLoginScreen.kt
+@@ -2,6 +2,8 @@ package com.music.bitchord.auth
+ 
+ import android.annotation.SuppressLint
+ import android.net.Uri
++import android.os.Handler
++import android.os.Looper
+ import android.view.View
+ import android.view.ViewGroup
+ import android.webkit.CookieManager
+@@ -105,6 +107,24 @@ fun SpotifyLoginScreen(
+                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+ 
+                 var sent = false
++                val handler = Handler(Looper.getMainLooper())
++                fun capture(view: WebView) {
++                    if (sent || view.url?.toUri()?.let { it.scheme == "https" && it.host == "open.spotify.com" } != true) return
++                    val raw = CookieManager.getInstance().getCookie("https://open.spotify.com") ?: return
++                    val token = raw.split(";").map { it.trim() }.firstOrNull { it.startsWith("sp_dc=") }
++                        ?.substringAfter("=")?.takeIf { it.isNotBlank() } ?: return
++                    sent = true
++                    handler.removeCallbacksAndMessages(null)
++                    view.visibility = View.GONE
++                    onConnected(token)
++                }
++                // Spotify sometimes completes sign-in through SPA navigation,
++                // which does not issue another onPageFinished callback.
++                val check = object : Runnable {
++                    override fun run() { capture(this@apply); if (!sent) handler.postDelayed(this, 1000) }
++                }
++                tag = handler
++                handler.postDelayed(check, 1000)
+                 webViewClient = object : WebViewClient() {
+                     // Spotify's own pages and the identity providers its sign-in
+                     // hands off to; anything else is not part of logging in.
+@@ -115,26 +135,14 @@ fun SpotifyLoginScreen(
+ 
+                     override fun onPageFinished(view: WebView, url: String?) {
+                         canGoBack = view.canGoBack()
+-                        if (sent || url?.startsWith("https://open.spotify.com") != true) return
+-                        val raw = CookieManager.getInstance().getCookie("https://open.spotify.com") ?: return
+-                        val token = raw.split(";")
+-                            .map { it.trim() }
+-                            .firstOrNull { it.startsWith("sp_dc=") }
+-                            ?.substringAfter("=")
+-                            ?.takeIf { it.isNotBlank() }
+-                            ?: return
+-                        sent = true
+-                        // Hide before handing over, so the web player this
+-                        // landed on doesn't flash up as the overlay tears down.
+-                        view.visibility = View.GONE
+-                        onConnected(token)
++                        capture(view)
+                     }
+                 }
+                 webView = this
+                 loadUrl(LOGIN_URL)
+             }
+         },
+-        onRelease = { it.destroy() },
++        onRelease = { (it.tag as? Handler)?.removeCallbacksAndMessages(null); it.stopLoading(); it.destroy() },
+     )
+ 
+     BackHandler(enabled = canGoBack) {
+diff --git a/app/src/main/java/com/music/bitchord/data/canvas/SpotifyToken.kt b/app/src/main/java/com/music/bitchord/data/canvas/SpotifyToken.kt
+index 1476a73..7e204f9 100644
+--- a/app/src/main/java/com/music/bitchord/data/canvas/SpotifyToken.kt
++++ b/app/src/main/java/com/music/bitchord/data/canvas/SpotifyToken.kt
+@@ -3,6 +3,11 @@ package com.music.bitchord.data.canvas
+ import android.annotation.SuppressLint
+ import android.content.Context
+ import android.graphics.Bitmap
++import android.webkit.WebResourceRequest
++import androidx.webkit.WebViewCompat
++import androidx.webkit.WebViewFeature
++import kotlinx.coroutines.suspendCancellableCoroutine
++import kotlin.coroutines.resume
+ import android.webkit.CookieManager
+ import android.webkit.JavascriptInterface
+ import android.webkit.WebStorage
+@@ -51,6 +56,7 @@ internal object SpotifyToken {
+ 
+     @Volatile private var appContext: Context? = null
+ 
++    @Volatile private var tokenCookie: String? = null
+     @Volatile private var cachedAccessToken: String? = null
+     @Volatile private var accessTokenExpiresAtMs = 0L
+     @Volatile private var cachedClientId: String? = null
+@@ -89,6 +95,7 @@ internal object SpotifyToken {
+         val cookie = AppSettings.spotifySpdcToken.value
+         if (cookie.isBlank()) return null
+ 
++        if (tokenCookie != cookie) { invalidate(); tokenCookie = cookie }
+         val now = System.currentTimeMillis()
+         cachedAccessToken?.let { if (now < accessTokenExpiresAtMs - 30_000) return it }
+ 
+@@ -136,15 +143,23 @@ internal object SpotifyToken {
+ 
+         val cookieManager = CookieManager.getInstance().apply {
+             setAcceptCookie(true)
+-            setCookie("https://open.spotify.com/", "sp_dc=$cookie; Domain=.spotify.com; Path=/; Secure")
+-            setCookie("https://accounts.spotify.com/", "sp_dc=$cookie; Domain=.spotify.com; Path=/; Secure")
+-            flush()
++
++        }
++        // setCookie is asynchronous: loading before its callback can mint an
++        // anonymous token even with a valid saved login.
++        for (origin in listOf("https://open.spotify.com/", "https://accounts.spotify.com/")) {
++            suspendCancellableCoroutine<Unit> { continuation ->
++                cookieManager.setCookie(origin, "sp_dc=$cookie; Domain=.spotify.com; Path=/; Secure") {
++                    if (continuation.isActive) continuation.resume(Unit)
++                }
++            }
+         }
++        cookieManager.flush()
+         // The player caches its token in web storage and skips a fresh
+         // /api/token request if a live one is already sitting there, leaving
+         // the hook with nothing to see — wipe storage so every harvest forces
+         // a real mint.
+-        runCatching { WebStorage.getInstance().deleteAllData() }
++        runCatching { WebStorage.getInstance().deleteOrigin("https://open.spotify.com") }
+ 
+         var webView: WebView? = null
+         return try {
+@@ -155,17 +170,25 @@ internal object SpotifyToken {
+                 cookieManager.setAcceptThirdPartyCookies(this, true)
+                 addJavascriptInterface(TokenBridge(deferred), BRIDGE_NAME)
+ 
++                // onPageStarted can run after the site's first token request.
++                // A document-start hook is installed before Spotify's scripts.
++                if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
++                    WebViewCompat.addDocumentStartJavaScript(this, HOOK_SCRIPT, setOf("https://open.spotify.com"))
++                }
+                 webViewClient = object : WebViewClient() {
++                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
++                        request.url.scheme != "https" || request.url.host != "open.spotify.com"
++
+                     override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                         super.onPageStarted(view, url, favicon)
+-                        view.evaluateJavascript(HOOK_SCRIPT, null)
++                        if (android.net.Uri.parse(url.orEmpty()).host == "open.spotify.com") view.evaluateJavascript(HOOK_SCRIPT, null)
+                     }
+ 
+                     override fun onPageFinished(view: WebView, url: String?) {
+                         super.onPageFinished(view, url)
+                         // Re-assert in case the player navigated client-side
+                         // after the onPageStarted injection ran.
+-                        view.evaluateJavascript(HOOK_SCRIPT, null)
++                        if (android.net.Uri.parse(url.orEmpty()).host == "open.spotify.com") view.evaluateJavascript(HOOK_SCRIPT, null)
+                     }
+                 }
+                 loadUrl("https://open.spotify.com/")
 diff --git a/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt
 new file mode 100644
-index 0000000..a8dec37
+index 0000000..f4e2af4
 --- /dev/null
 +++ b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,72 @@
 +package com.music.bitchord.data.sources
 +
 +import android.net.Uri
@@ -79,7 +242,16 @@ index 0000000..a8dec37
 +        StreamResolver.initializeExtractor()
 +        val extractor = ServiceList.SoundCloud.getSearchExtractor(key, listOf("tracks"), "")
 +        extractor.fetchPage()
-+        val rows = extractor.initialPage.items.filterIsInstance<StreamInfoItem>()
++        val items = extractor.initialPage.items.toMutableList()
++        var next = extractor.initialPage.nextPage
++        var pages = 1
++        while (items.size < limit.coerceAtMost(50) && org.schabi.newpipe.extractor.Page.isValid(next) && pages < 5) {
++            val page = runCatching { extractor.getPage(next) }.getOrNull() ?: break
++            items.addAll(page.items)
++            next = page.nextPage
++            pages++
++        }
++        val rows = items.filterIsInstance<StreamInfoItem>()
 +            .filter { it.contentAvailability != ContentAvailability.PAID && it.contentAvailability != ContentAvailability.MEMBERSHIP }
 +            .map { item ->
 +                Song(videoId = SourceRegistry.trackKey(configId, item.url), title = item.name,
@@ -98,7 +270,10 @@ index 0000000..a8dec37
 +        StreamResolver.initializeExtractor()
 +        val info = StreamInfo.getInfo(ServiceList.SoundCloud, trackId)
 +        require(info.contentAvailability != ContentAvailability.PAID && info.contentAvailability != ContentAvailability.MEMBERSHIP) { "This track is restricted on SoundCloud" }
-+        val candidates = info.audioStreams.filter { it.isUrl && it.content.startsWith("https://") }
++        val candidates = info.audioStreams.filter {
++            it.isUrl && it.content.startsWith("https://") &&
++                it.format?.suffix?.lowercase(Locale.ROOT) in setOf("mp3", "m4a", "mp4", "aac")
++        }
 +        val cap = (request as? StreamRequest.Capped)?.maxKbps
 +        val selected = (if (cap != null) candidates.filter { it.averageBitrate <= cap } else candidates)
 +            .maxByOrNull { it.averageBitrate } ?: candidates.minByOrNull { it.averageBitrate } ?: return@withContext null
@@ -217,7 +392,7 @@ index b036253..78e8ed2 100644
          <exclude domain="sharedpref" path="bitchord_auth_plain.xml" />
          <exclude domain="sharedpref" path="bitchord_sources.xml" />
 diff --git a/build.gradle.kts b/build.gradle.kts
-index eeca68e..b213139 100644
+index eeca68e..86aa0ce 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
 @@ -41,8 +41,8 @@ buildscript {
@@ -226,8 +401,8 @@ index eeca68e..b213139 100644
   */
 -extra["bitchordVersionCode"] = 36
 -extra["bitchordVersionName"] = "1.9"
-+extra["bitchordVersionCode"] = 37
-+extra["bitchordVersionName"] = "1.9-free-sc1"
++extra["bitchordVersionCode"] = 38
++extra["bitchordVersionName"] = "1.9-tv-services2"
  
  /*
   * Bump this by hand before cutting each sideloaded test build ("beta2",

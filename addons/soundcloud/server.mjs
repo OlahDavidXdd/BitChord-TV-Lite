@@ -72,7 +72,7 @@ export function createServer(client) {
       else if (url.pathname === '/search') {
         const q = url.searchParams.get('q') || '';
         if (q.length > 300) throw fail(400, 'Query too long');
-        body = await client.search(q);
+        body = await client.search(q, Math.max(0, Math.min(1000, Number(url.searchParams.get('offset')) || 0)));
       } else if (url.pathname.startsWith('/stream/')) body = await client.stream(decodeURIComponent(url.pathname.slice(8)));
       else throw fail(404, 'Not found');
       res.end(JSON.stringify(body));

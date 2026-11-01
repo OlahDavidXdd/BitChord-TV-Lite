@@ -1,0 +1,18 @@
+# Public music inside BitChord TV
+
+YouTube Music: choose the service in Settings or Search, enter a song/artist, and select a result. Playback uses a visible official YouTube player in BitChord with remote pause, seek, next/previous and completion handling. Embedding, regional restrictions, adverts and availability are controlled by YouTube. Error 153 means YouTube rejected the widget origin; it is not a decoder fixable by relabelling a stream.
+
+Spotify: choose Spotify and paste a public track, album or playlist link. BitChord reads public metadata, displays the tracks, and matches each selection to YouTube Music by title, artist and duration, with penalties for unwanted covers/remixes. Uncertain matches are rejected. This is the original app's matching approach, not Spotify audio playback. Public embeds may expose only part of a large playlist. No private libraries or account login are supported in this update; TV login was deferred by request.
+
+## Optional free helper
+
+Some widget/browser runtimes block cross-origin metadata requests. On an independently hosted Node 22+ machine:
+
+```
+cd addons/music
+HOST=0.0.0.0 PORT=8788 npm start
+```
+
+Put its reachable origin in TV Settings → Music helper. Expose it through HTTPS with your own reverse proxy when used remotely. It needs no API key, OAuth registration or phone bridge. It only fetches fixed YouTube Music endpoints and validated public Spotify embed links, not arbitrary URLs. Do not expose an unbounded public deployment without rate limiting at your proxy.
+
+Search caching and concurrent-request deduplication keep repeated work down. `npm test` validates metadata parsing, matching and HTTP routes. A live Spotify playlist probe returned and parsed 50 tracks. The build environment's proxy refused music.youtube.com, so YouTube search/playback here is verified with fixtures and player mocks, not a live account or Samsung TV. Device network/CORS, player identity and codec testing is required.

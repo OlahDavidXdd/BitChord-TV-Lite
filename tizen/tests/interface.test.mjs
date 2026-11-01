@@ -19,7 +19,7 @@ async function setup(t, routes = () => ({ status: 404, body: { error: 'Not found
     setListener(listener) { this.listener = listener; }, prepareAsync(done) { done(); }, play() { this.state = 'PLAYING'; }, pause() { this.state = 'PAUSED'; },
     getDuration() { return this.duration; }, getCurrentTime() { return this.position; }, seekTo(ms) { this.position = ms; } };
   window.webapis = { avplay: av }; window.BITCHORD_CONFIG = {};
-  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js']) window.eval(read(name));
+  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js']) window.eval(read(name));
   return { window, document: window.document, calls, av, el: id => window.document.getElementById(id),
     submit(id) { window.document.getElementById(id).dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); } };
 }
@@ -107,4 +107,53 @@ test('public link fallback uses the official widget and stops it on suspend', as
   Object.defineProperty(ui.document, 'hidden', { value: true, configurable: true });
   ui.document.dispatchEvent(new ui.window.Event('visibilitychange'));
   assert.equal(calls.at(-1), 'pause'); assert.equal(ui.el('soundcloud-embed').hidden, true);
+});
+
+test('YouTube Music search plays inside BitChord and remote seek/pause control the embedded player', async t => {
+  const renderer={musicResponsiveListItemRenderer:{playlistItemData:{videoId:'abcdefghijk'},flexColumns:[{musicResponsiveListItemFlexColumnRenderer:{text:{runs:[{text:'Song'}]}}},{musicResponsiveListItemFlexColumnRenderer:{text:{runs:[{text:'Artist'}]}}}]}};
+  const ui=await setup(t,request=>({body:{contents:[renderer]}})), commands=[];
+  let options;
+  ui.window.YT={Player:function(mount,config){options=config;this.playVideo=()=>commands.push('play');this.pauseVideo=()=>commands.push('pause');this.getPlayerState=()=>1;this.getCurrentTime=()=>20;this.getDuration=()=>120;this.seekTo=seconds=>commands.push(seconds);this.destroy=()=>commands.push('destroy');}};
+  ui.el('music-youtube').click();ui.el('query').value='Song Artist';ui.submit('search');await new Promise(setImmediate);
+  assert.equal(ui.el('results').querySelectorAll('button').length,1);ui.el('results').querySelector('button').click();await new Promise(setImmediate);
+  assert.equal(ui.el('youtube-embed').hidden,false);assert.equal(options.videoId,'abcdefghijk');assert.equal(ui.el('view-playing').hidden,false);
+  ui.el('toggle').click();ui.el('forward').click();assert.deepEqual(commands,['pause',30]);
+  ui.document.dispatchEvent(new ui.window.KeyboardEvent('keydown',{keyCode:413,bubbles:true}));
+  assert.equal(ui.el('youtube-embed').hidden,true);assert.equal(commands.at(-1),'destroy');
+});
+test('Spotify public playlist import matches songs to YouTube inside BitChord', async t => {
+  const playlist='<script id="__NEXT_DATA__" type="application/json">'+JSON.stringify({props:{pageProps:{entity:{name:'Spotify list',trackList:[{title:'Song',subtitle:'Artist'}]}}}})+'</script>';
+  const renderer={musicResponsiveListItemRenderer:{playlistItemData:{videoId:'abcdefghijk'},flexColumns:[{musicResponsiveListItemFlexColumnRenderer:{text:{runs:[{text:'Song'}]}}},{musicResponsiveListItemFlexColumnRenderer:{text:{runs:[{text:'Artist'}]}}}]}};
+  const ui=await setup(t,request=>({body:request.url.includes('/embed/')?playlist:{contents:[renderer]}}));
+  // The Spotify embed returns HTML, rather than the JSON fixture used by other routes.
+  const originalSend=ui.window.XMLHttpRequest.prototype.send;
+  ui.window.XMLHttpRequest.prototype.send=function(){if(this.url.includes('/embed/')){ui.calls.push(this);this.status=200;this.responseText=playlist;this.onload();}else originalSend.call(this);};
+  let video;
+  ui.window.YT={Player:function(mount,options){video=options.videoId;this.destroy=()=>{};}};
+  ui.el('music-spotify').click();ui.el('query').value='https://open.spotify.com/playlist/'+'a'.repeat(22);ui.submit('search');await new Promise(setImmediate);
+  assert.equal(ui.el('search-heading').textContent,'Spotify list');ui.el('results').querySelector('button').click();await new Promise(setImmediate);
+  assert.equal(video,'abcdefghijk');assert.match(ui.el('now').textContent,/Song.*Artist/);
+});
+test('SoundCloud AVPlay decode failure retries a different compatible stream', async t => {
+  const ui=await setup(t,request=>{
+    if(request.url.includes('/manifest.json'))return {body:{name:'SoundCloud'}};
+    if(request.url.includes('/search?'))return {body:{tracks:[{id:'1',title:'Song',artist:'Artist',source:'SoundCloud',permalinkURL:'https://soundcloud.com/artist/song'}]}};
+    return {body:{url:'https://cdn.example/first.m3u8',manifest:'hls',alternatives:[{url:'https://cdn.example/second.mp3',manifest:'none'}]}};
+  });
+  ui.el('addon').value='https://music.example';ui.submit('settings');ui.el('query').value='Song';ui.submit('search');ui.el('results').querySelector('button').click();
+  assert.equal(ui.av.url,'https://cdn.example/first.m3u8');ui.av.listener.onerror();await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(ui.av.url,'https://cdn.example/second.mp3');assert.equal(ui.av.state,'PLAYING');
+});
+test('SoundCloud pagination appends songs instead of replacing the first page',async t=>{
+  const ui=await setup(t,request=>request.url.includes('/search?')?{body:{tracks:[{id:request.url.includes('offset=50')?'2':'1',title:'Song',artist:'Artist'}],nextOffset:request.url.includes('offset=50')?null:50}}:{body:{name:'SoundCloud'}});
+  ui.el('addon').value='https://music.example';ui.submit('settings');ui.el('query').value='Song';ui.submit('search');assert.equal(ui.el('more-results').hidden,false);
+  ui.el('more-results').click();assert.equal(ui.el('results').querySelectorAll('button').length,2);assert.equal(ui.el('more-results').hidden,true);
+});
+
+test('SoundCloud opens the official player after native decoding fails', async t => {
+ const ui=await setup(t,request=>request.url.includes('/manifest.json')?{body:{name:'SoundCloud'}}:request.url.includes('/search?')?{body:{tracks:[{id:'1',title:'Song',artist:'Artist',source:'SoundCloud',permalinkURL:'https://soundcloud.com/artist/song'}]}}:{body:{url:'https://cdn.example/audio.m3u8',manifest:'hls'}});
+ const Widget=()=>({bind(){},pause(){},toggle(){}});Widget.Events={};ui.window.SC={Widget};
+ ui.el('addon').value='https://music.example';ui.submit('settings');ui.el('query').value='Song';ui.submit('search');ui.el('results').querySelector('button').click();
+ ui.av.listener.onerror();await new Promise(resolve=>setTimeout(resolve,10));
+ assert.equal(ui.el('soundcloud-embed').hidden,false);assert.match(ui.el('soundcloud-embed').querySelector('iframe').src,/w.soundcloud.com/);
 });

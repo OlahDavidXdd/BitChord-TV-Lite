@@ -1,6 +1,6 @@
 # BitChord TV Lite — Tizen 5+
 
-Standalone web widget, with Android TV inspired navigation, free public SoundCloud playback, remote controls, favorites/history and optional glass effects in Settings → Appearance. YouTube/Spotify open installed official TV apps and do not connect accounts or libraries inside BitChord. No phone bridge is used.
+Standalone web widget, with Android TV inspired navigation, free public SoundCloud playback, remote controls, favorites/history and optional glass effects in Settings → Appearance. YouTube Music searches and plays through the visible official player inside BitChord. Public Spotify links import tracks that are matched to YouTube Music. TV login/private libraries are deferred. Official-app shortcuts remain optional. See [music details](../addons/music/README.md). No phone bridge is used.
 
 Build: `python3 tizen/scripts/package.py`. The compressed unsigned widget has a 1 MiB budget. It uses the TV runtime rather than bundling Android libraries.
 
@@ -32,3 +32,5 @@ https://developer.samsung.com/smarttv/develop/getting-started/setting-up-sdk/cre
 ## Validation
 
 Run `npm ci --prefix tizen && npm test --prefix tizen`; run Node tests in addons/soundcloud for the public extractor and helper. DOM/AVPlay mocks do not prove Samsung compatibility. Before deployment validate signing, installation, keyboard/remote focus, network/CORS, media codecs, seek, Return and suspend on the actual TV. No physical TV or Samsung signing certificate was available here.
+
+SoundCloud: 50 results per page and Load more. MP3/AAC are preferred; Opus/Ogg are filtered. Native decoder failures retry alternatives and then open the official SoundCloud player. Public restrictions still apply. The large artwork blur and per-card image color extraction are removed to reduce rendering work.
