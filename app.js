@@ -6,7 +6,7 @@
   function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
   var shell = el('tv-shell'), view = 'home', lastView = 'home', audio = el('audio');
   var tracks = [], current = -1, generation = 0, searchGeneration = 0, toastTimer, controlsTimer;
-  var external = null, publicClient = null;
+  var external = null, publicClient = null, playbackFailed = null, preparingTimer, pageQuery = '', pageRows = [], pageOffset = null;
   var av = window.webapis && window.webapis.avplay, usingAv = false, avPaused = false;
   var base = '', history = read('bitchord-tv-history', []), favorites = read('bitchord-tv-favorites', []), libraryRecent = false;
   try { base = localStorage.getItem('bitchord-addon') || ''; } catch (_) {}
@@ -37,7 +37,7 @@
   }
   Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (button) { button.onclick = function () { show(button.getAttribute('data-view'), false); }; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-go]'), function (button) { button.onclick = function () { show(button.getAttribute('data-go'), true); }; });
-  el('account').onclick = function () { show('settings', true); el('open-youtube').focus(); };
+  el('account').onclick = function () { show('settings', true); el('music-youtube').focus(); };
   el('open-player').onclick = function () { show('playing', true); };
   el('close-player').onclick = function () { show(lastView, false); var tab = document.querySelector('#tabs [data-view="' + lastView + '"]'); if (tab) tab.focus(); };
   function controls() { el('view-playing').classList.add('controls-on'); clearTimeout(controlsTimer); controlsTimer = setTimeout(function () { if (document.activeElement && !el('transport').contains(document.activeElement)) el('view-playing').classList.remove('controls-on'); }, 6000); }
@@ -45,7 +45,7 @@
     if (base === 'soundcloud:public') {
       if (!publicClient) publicClient = SoundCloudPublic.create(window.SOUNDCLOUD_PUBLIC_BOOTSTRAP || {});
       if (path === '/manifest.json') { done(null, { id: 'soundcloud.public', name: 'SoundCloud Public' }); return; }
-      var task = path.indexOf('/search?') === 0 ? publicClient.search(decodeURIComponent(path.split('q=')[1] || '')) : publicClient.stream(decodeURIComponent(path.slice(8)));
+      var task = path.indexOf('/search?') === 0 ? publicClient.search(decodeURIComponent((/[?&]q=([^&]*)/.exec(path) || [])[1] || ''), Number((/[?&]offset=(\d+)/.exec(path) || [])[1] || 0)) : publicClient.stream(decodeURIComponent(path.slice(8)));
       task.then(function (data) { done(null, data); }, function (error) { done(error.message); }); return;
     }
     var xhr = new XMLHttpRequest(); xhr.open('GET', base + path); xhr.timeout = 20000;
@@ -55,6 +55,7 @@
     xhr.ontimeout = function () { done('Addon timed out'); }; xhr.send();
   }
   function stop() {
+    playbackFailed = null; clearTimeout(preparingTimer);
     if (external) { var old = external; external = null; old.stop(); }
     audio.pause(); audio.removeAttribute('src'); audio.load();
     if (av && usingAv) { try { av.stop(); av.close(); } catch (_) {} }
@@ -70,37 +71,11 @@
   function isFavorite(track) { var item = record(track); return favorites.some(function (saved) { return same(saved, item); }); }
   function favoriteState() { var saved = current >= 0 && tracks[current] && isFavorite(tracks[current]); el('favorite').textContent = saved ? '♥' : '♡'; el('favorite').classList.toggle('saved', !!saved); el('favorite').setAttribute('aria-label', saved ? 'Remove from favorites' : 'Favorite song'); }
   function remember(track) { var item = record(track); history = [item].concat(history.filter(function (old) { return !same(old, item); })).slice(0, 40); save('bitchord-tv-history', history); renderSaved(); }
-  var colorCache = {};
-  function artworkColor(url, done) {
-    if (colorCache[url]) { done(colorCache[url]); return; }
-    var image = new Image(); image.crossOrigin = 'anonymous';
-    image.onload = function () {
-      try {
-        var canvas = document.createElement('canvas'); canvas.width = 24; canvas.height = 24;
-        var context = canvas.getContext('2d'); context.drawImage(image, 0, 0, 24, 24);
-        var pixels = context.getImageData(0, 0, 24, 24).data, red = 0, green = 0, blue = 0, weight = 0;
-        for (var i = 0; i < pixels.length; i += 4) {
-          if (pixels[i + 3] < 100) continue;
-          var w = 1 + Math.floor((Math.max(pixels[i], pixels[i + 1], pixels[i + 2]) - Math.min(pixels[i], pixels[i + 1], pixels[i + 2])) / 16);
-          red += pixels[i] * w; green += pixels[i + 1] * w; blue += pixels[i + 2] * w; weight += w;
-        }
-        if (!weight) return;
-        var r = Math.floor(red / weight) / 255, g = Math.floor(green / weight) / 255, b = Math.floor(blue / weight) / 255;
-        var max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min, hue = 0;
-        if (delta) { if (max === r) hue = ((g - b) / delta + 6) % 6; else if (max === g) hue = (b - r) / delta + 2; else hue = (r - g) / delta + 4; }
-        var saturation = Math.max(0.30, Math.min(0.80, (max ? delta / max : 0) * 1.3)), value = 0.38;
-        var chroma = value * saturation, x = chroma * (1 - Math.abs(hue % 2 - 1)), m = value - chroma;
-        var rgb = hue < 1 ? [chroma, x, 0] : hue < 2 ? [x, chroma, 0] : hue < 3 ? [0, chroma, x] : hue < 4 ? [0, x, chroma] : hue < 5 ? [x, 0, chroma] : [chroma, 0, x];
-        var color = 'rgb(' + rgb.map(function (channel) { return Math.round((channel + m) * 255); }).join(',') + ')';
-        colorCache[url] = color; done(color);
-      } catch (_) { /* Artwork without CORS keeps the original neutral footer. */ }
-    };
-    image.src = url;
-  }
   var imageObserver = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) { if (entry.isIntersecting || entry.intersectionRatio > 0) { var image = entry.target; image.src = image.getAttribute('data-src'); imageObserver.unobserve(image); } });
   }, { rootMargin: '180px' }) : null;
-  function renderCards(container, list) {
+  function renderCards(container, list, onSelect) {
+    if (imageObserver) Array.prototype.forEach.call(container.querySelectorAll('img'), function (img) { imageObserver.unobserve(img); });
     container.textContent = '';
     list.forEach(function (track, index) {
       var card = document.createElement('button'); card.className = 'track-card'; card.setAttribute('aria-label', (track.title || 'Untitled') + ' by ' + (track.artist || 'Unknown artist'));
@@ -108,17 +83,18 @@
       if (url) { var image = document.createElement('img'); if (imageObserver) image.setAttribute('data-src', url); else image.src = url; image.alt = ''; image.loading = 'lazy'; image.onerror = function () { image.hidden = true; }; art.appendChild(image); }
       var copy = document.createElement('span'); copy.className = 'card-copy'; var title = document.createElement('strong'); title.textContent = track.title || 'Untitled';
       var artist = document.createElement('small'); artist.textContent = track.artist || ''; copy.appendChild(title); copy.appendChild(artist); card.appendChild(art); card.appendChild(copy);
-      card.onclick = function () { tracks = list.slice(); play(index); };
+      card.onclick = function () { if (onSelect) onSelect(index); else { tracks = list.slice(); play(index); } };
       container.appendChild(card);
       if (url && imageObserver) imageObserver.observe(image);
-      if (url) image.onload = function () { artworkColor(url, function (color) { card.style.backgroundColor = color; }); };
+      // Keep neutral card footers: per-card canvas sampling causes extra downloads and main-thread stalls on older TVs.
     });
   }
   function renderSaved() {
+    if (view !== 'home' && view !== 'library') return;
     var recent = history.filter(function (track) { return track._base === base; });
-    el('home-empty').hidden = !!recent.length; el('home-content').hidden = !recent.length; renderCards(el('home-cards'), recent);
+    if (view === 'home') { el('home-empty').hidden = !!recent.length; el('home-content').hidden = !recent.length; renderCards(el('home-cards'), recent); }
     var saved = (libraryRecent ? history : favorites).filter(function (track) { return track._base === base; });
-    el('library-empty').hidden = !!saved.length; renderCards(el('library-cards'), saved);
+    if (view === 'library') { el('library-empty').hidden = !!saved.length; renderCards(el('library-cards'), saved); }
   }
   function play(index) {
     if (!tracks[index]) return;
@@ -132,23 +108,39 @@
     var link = el('source-link'), safeLink = /^https:\/\/(www\.)?soundcloud\.com\//.test(track.permalinkURL || '');
     link.hidden = !safeLink; if (safeLink) { link.href = track.permalinkURL; link.textContent = '☁ SoundCloud · ' + (track.uploader || track.artist || '') + ' ↗'; }
     favoriteState(); show('playing', true); status('Resolving stream…'); showTime(0, track.duration);
-    function started() { remember(track); el('toggle').textContent = 'Ⅱ'; status('Playing'); }
-    function start(err, stream) {
+    function started() { clearTimeout(preparingTimer); if (usingAv) preparingTimer = setTimeout(function () { failed(); }, 20000); remember(track); el('toggle').textContent = 'Ⅱ'; status('Playing'); }
+    var candidates = [], candidateIndex = 0, fallbackUsed = false, failing = false, streamTicket = 0;
+    function failed(ticket) {
+      if (request !== generation || failing || (ticket != null && ticket !== streamTicket)) return;
+      failing = true; playbackFailed = null; clearTimeout(preparingTimer);
+      if (av && usingAv) try { av.stop(); av.close(); } catch (_) {}
+      usingAv = false; audio.pause(); audio.removeAttribute('src'); audio.load();
+      setTimeout(function () {
+        if (request !== generation) return; failing = false;
+        if (candidateIndex < candidates.length) { status('Trying another TV-compatible stream…'); start(null, candidates[candidateIndex++], true); }
+        else if (!fallbackUsed && track.source === 'SoundCloud' && track.permalinkURL && window.openSoundCloudTrack) {
+          fallbackUsed = true; status('Opening SoundCloud’s official player…'); window.openSoundCloudTrack(track.permalinkURL);
+        } else status('No compatible MP3/AAC stream played. This track may be restricted or unsupported on this TV.');
+      }, 0);
+    }
+    function start(err, stream, retry) {
       if (request !== generation) return;
-      if (err) { status(err); return; }
+      if (err) { if (track.source === 'SoundCloud' && track.permalinkURL) failed(); else status(err); return; }
+      if (!retry) { candidates = stream.alternatives || []; candidateIndex = 0; }
+      var ticket = ++streamTicket; playbackFailed = function () { failed(ticket); };
       if (!stream.url || !/^https?:\/\//i.test(stream.url) || (stream.encrypted && stream.encrypted !== 'false')) { status('This stream is not supported'); return; }
       try {
         if (av) {
-          usingAv = true; av.open(stream.url);
-          av.setListener({ oncurrentplaytime: function (ms) { if (request === generation) showTime(ms / 1000, av.getDuration() / 1000); },
-            onstreamcompleted: function () { if (request === generation) play(current + 1); }, onerror: function () { if (request === generation) status('TV could not decode this stream'); } });
-          av.prepareAsync(function () { if (request === generation) { av.play(); started(); } }, function () { if (request === generation) status('TV could not prepare this stream'); });
+          usingAv = true; av.open(stream.url); clearTimeout(preparingTimer); preparingTimer = setTimeout(function () { failed(ticket); }, 15000);
+          av.setListener({ oncurrentplaytime: function (ms) { if (request === generation) { if (ms > 0) clearTimeout(preparingTimer); showTime(ms / 1000, av.getDuration() / 1000); } },
+            onstreamcompleted: function () { if (request === generation) play(current + 1); }, onerror: function () { if (request === generation) failed(ticket); } });
+          av.prepareAsync(function () { if (request === generation && ticket === streamTicket) { av.play(); started(); } }, function () { if (request === generation) failed(ticket); });
         } else {
           audio.src = stream.url; var promise = audio.play();
-          if (promise) promise.then(function () { if (request === generation) started(); }).catch(function () { if (request === generation) status('Playback failed; this browser may not support the stream codec'); });
+          if (promise) promise.then(function () { if (request === generation) started(); }).catch(function () { if (request === generation) failed(ticket); });
           else started();
         }
-      } catch (_) { status('Unable to play this stream on this device'); }
+      } catch (_) { failed(); }
     }
     if (track.streamURL) start(null, { url: track.streamURL }); else get('/stream/' + encodeURIComponent(track.id), start);
   }
@@ -173,9 +165,19 @@
     var request = ++searchGeneration; status('Searching…');
     get('/search?q=' + encodeURIComponent(query), function (err, data) {
       if (request !== searchGeneration) return; if (err) { status(err); return; }
-      var results = data.tracks || []; renderCards(el('results'), results); el('search-empty').hidden = !!results.length;
+      var results = data.tracks || []; pageQuery = query; pageRows = results; pageOffset = data.nextOffset; el('more-results').hidden = pageOffset == null; renderCards(el('results'), results); el('search-empty').hidden = !!results.length;
       el('search-heading').textContent = results.length ? 'Songs' : 'No Results'; status(results.length + ' tracks');
       var first = el('results').querySelector('button'); if (first) first.focus();
+    });
+  };
+  el('more-results').onclick = function () {
+    if (pageOffset == null) return; var request = ++searchGeneration, button = el('more-results'); button.disabled = true;
+    get('/search?q=' + encodeURIComponent(pageQuery) + '&offset=' + pageOffset, function (err, data) {
+      button.disabled = false; if (request !== searchGeneration) return; if (err) { status(err); return; }
+      var seen = {}; pageRows.forEach(function (track) { seen[track.id] = true; });
+      pageRows = pageRows.concat((data.tracks || []).filter(function (track) { return !seen[track.id]; }));
+      pageOffset = data.nextOffset; button.hidden = pageOffset == null;
+      renderCards(el('results'), pageRows); status(pageRows.length + ' tracks');
     });
   };
   el('library-favorites').onclick = function () { libraryRecent = false; this.classList.add('selected'); el('library-recent').classList.remove('selected'); renderSaved(); };
@@ -191,7 +193,7 @@
   el('backward').onclick = function () { seek(-10); }; el('forward').onclick = function () { seek(10); };
   audio.onended = function () { play(current + 1); }; audio.ontimeupdate = function () { showTime(audio.currentTime, audio.duration); };
   audio.onplay = function () { el('toggle').textContent = 'Ⅱ'; }; audio.onpause = function () { el('toggle').textContent = '▶'; };
-  audio.onerror = function () { if (audio.getAttribute('src')) status('Stream failed or codec is unsupported'); };
+  audio.onerror = function () { if (audio.getAttribute('src') && playbackFailed) playbackFailed(); };
   el('player-art').onerror = function () { this.hidden = true; el('player-art-fallback').hidden = false; };
   document.addEventListener('visibilitychange', function () { if (document.hidden) { ++generation; stop(); } });
   try { ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind', 'MediaTrackNext', 'MediaTrackPrevious'].forEach(function (key) { try { tizen.tvinputdevice.registerKey(key); } catch (_) {} }); } catch (_) {}
@@ -220,6 +222,12 @@
   });
   window.BitChordPlayer = {
     notify: status,
+    cancelSearch: function () { ++searchGeneration; el('more-results').hidden = true; },
+    catalog: function (list, heading, onSelect) {
+      ++searchGeneration; el('more-results').hidden = true; show('search', false); renderCards(el('results'), list, onSelect);
+      el('search-empty').hidden = !!list.length; el('search-heading').textContent = heading || 'Songs';
+      var first = el('results').querySelector('button'); if (first) first.focus();
+    },
     enableSoundCloud: function (helper) {
       base = helper || 'soundcloud:public'; el('addon').value = helper || ''; clearQueue();
       try { localStorage.setItem('bitchord-addon', base); } catch (_) {} show('search', true); status('SoundCloud public search enabled — no login required');

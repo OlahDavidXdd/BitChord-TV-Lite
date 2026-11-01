@@ -29,6 +29,7 @@
       document.head.appendChild(script);
     }); return widgetPromise;
   }
+  window.openSoundCloudTrack = function (url) { el('sc-track-link').value = url; var event = document.createEvent('Event'); event.initEvent('submit', true, true); el('sc-link-form').dispatchEvent(event); };
   el('sc-link-form').onsubmit = function (event) {
     event.preventDefault(); var link = document.createElement('a'); link.href = el('sc-track-link').value.trim();
     if (link.protocol !== 'https:' || !/^(www\.)?soundcloud\.com$/.test(link.hostname) || link.pathname.split('/').filter(Boolean).length < 2 || link.username || link.password) {
