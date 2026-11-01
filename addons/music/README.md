@@ -16,3 +16,7 @@ HOST=0.0.0.0 PORT=8788 npm start
 Put its reachable origin in TV Settings → Music helper. Expose it through HTTPS with your own reverse proxy when used remotely. It needs no API key, OAuth registration or phone bridge. It only fetches fixed YouTube Music endpoints and validated public Spotify embed links, not arbitrary URLs. Do not expose an unbounded public deployment without rate limiting at your proxy.
 
 Search caching and concurrent-request deduplication keep repeated work down. `npm test` validates metadata parsing, matching and HTTP routes. A live Spotify playlist probe returned and parsed 50 tracks. The build environment's proxy refused music.youtube.com, so YouTube search/playback here is verified with fixtures and player mocks, not a live account or Samsung TV. Device network/CORS, player identity and codec testing is required.
+
+## Existing audio helper routes
+
+The merged update also preserves `/yt`, `/spotify`, `/soundcloud` and root SoundCloud addon routes, with byte-range audio proxying. Install `yt-dlp` on the helper for native progressive YouTube audio (`python3 -m pip install -U yt-dlp`). Optional Spotify catalog search needs SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET on the server; public-link imports need neither. Choose the explicit helper source buttons in TV Settings. These routes do not implement user login.

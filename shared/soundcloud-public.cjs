@@ -45,10 +45,19 @@
         throw e;
       });
     }
+    // Search rows can arrive as bare ids; fetch their details so they are not silently dropped.
+    function hydrate(data) {
+      var rows = data.collection || [], stubs = rows.filter(function (row) { return row && row.id && !row.title; }).map(function (row) { return row.id; });
+      if (!stubs.length) return data;
+      return api('/tracks?ids=' + stubs.slice(0, 50).join(',')).then(function (full) {
+        var byId = Object.create(null); (Array.isArray(full) ? full : []).forEach(function (track) { byId[String(track.id)] = track; });
+        data.collection = rows.map(function (row) { return row && !row.title && byId[String(row.id)] ? byId[String(row.id)] : row; }); return data;
+      }, function () { return data; });
+    }
     function playable(track) { return track && track.streamable !== false && track.policy !== 'BLOCK' && track.policy !== 'SNIP' && track.access !== 'blocked' && track.access !== 'preview'; }
     function mapped(track) {
       return { id: String(track.id), title: track.title || '', artist: (track.publisher_metadata || {}).artist || (track.user || {}).username || '',
-        duration: Number(track.duration || 0) / 1000, artworkURL: (track.artwork_url || (track.user || {}).avatar_url || '').replace('-large.', '-t500x500.'),
+        duration: Number(track.duration || 0) / 1000, artworkURL: (track.artwork_url || (track.user || {}).avatar_url || '').replace('-large.', '-t300x300.'),
         permalinkURL: track.permalink_url, uploader: (track.user || {}).username || '', source: 'SoundCloud' };
     }
     return {
@@ -57,8 +66,9 @@
         if (query.length > 300) return Promise.reject(error('Query too long', 400));
         if (searches[cacheKey] && Date.now() - searches[cacheKey].at < 120000) return Promise.resolve(searches[cacheKey].data);
         if (pending[cacheKey]) return pending[cacheKey];
-        pending[cacheKey] = api('/search/tracks?q=' + encodeURIComponent(query) + '&limit=50&offset=' + offset).then(function (data) {
-          var result = { nextOffset: data.next_href ? offset + 50 : null, tracks: (data.collection || []).filter(playable).map(function (track) { tracks[String(track.id)] = { at: Date.now(), data: track }; return mapped(track); }) };
+        pending[cacheKey] = api('/search/tracks?q=' + encodeURIComponent(query) + '&limit=50&offset=' + offset).then(hydrate).then(function (data) {
+          var seen = Object.create(null);
+          var result = { nextOffset: data.next_href ? offset + 50 : null, tracks: (data.collection || []).filter(function (track) { var key = String(track && track.id); if (!track || !/^\d+$/.test(key) || !track.title || seen[key] || !playable(track)) return false; seen[key] = true; return true; }).map(function (track) { tracks[String(track.id)] = { at: Date.now(), data: track }; return mapped(track); }) };
           if (Object.keys(searches).length >= 40) searches = Object.create(null);
           searches[cacheKey] = { at: Date.now(), data: result }; delete pending[cacheKey]; return result;
         }, function (e) { delete pending[cacheKey]; throw e; }); return pending[cacheKey];
@@ -87,7 +97,7 @@
           })).then(function (resolved) {
             var choices = resolved.filter(function (item) { return !!item; });
             if (!choices.length) throw error('SoundCloud refused the available MP3/AAC streams. Try the official player.', 403);
-            var result = choices[0]; if (choices.length > 1) result.alternatives = choices.slice(1);
+            var result = choices[0]; if (choices.length > 1) result.alternatives = choices.slice(1); result.alternates = choices.slice(1);
             streams[id] = { at: Date.now(), data: result }; return result;
           });
         });

@@ -19,6 +19,8 @@
   el('music-spotify').onclick = function () { choose('spotify', true); notify('Paste a public Spotify playlist, album or track link. Account login is coming later.'); };
   var enableSoundCloud = BitChordPlayer.enableSoundCloud;
   BitChordPlayer.enableSoundCloud = function (helperUrl) { choose('addon', false); enableSoundCloud(helperUrl); };
+  var setSource = BitChordPlayer.setSource;
+  BitChordPlayer.setSource = function (url, message) { choose('addon', false); setSource(url, message); };
   var addonSettings = el('settings').onsubmit;
   el('settings').onsubmit = function (event) { choose('addon', false); addonSettings(event); };
   el('sc-free-enable').onclick = function () { choose('addon', false); originalSoundCloud(); };

@@ -27,14 +27,15 @@
     "spotify": "Public playlist/album/track imports, matched to YouTube Music; live playlist parsing verified; account login deferred by user",
     "glass_effects": "optional in Settings; off by default",
     "path": "tizen/releases/BitChord-TV-Lite-unsigned.wgt",
-    "size_bytes": 255104,
-    "sha256": "6187d8b5c22115e71d90e12198d893e0393fbf2ddf05f58037288200396a51e5",
+    "size_bytes": 255759,
+    "sha256": "8ba0feb36c17b33568318563c267f128d19f054adddb72a4f23b1a7978a0dbae",
     "account_login": "deferred by user; no private library sync",
-    "performance": "Removed per-card artwork fetch/canvas sampling, hidden saved-library redraws and large background blur; no hardware benchmark"
+    "performance": "Removed per-card artwork fetch/canvas sampling, hidden saved-library redraws and large background blur; no hardware benchmark",
+    "audio_helper": "Preserved /yt, /spotify and /soundcloud source routes and range proxying; yt-dlp optional dependency, Spotify catalogue requires server credentials. Public Spotify imports need none."
   },
   "validation": {
-    "automated_helper_tests": 21,
-    "automated_tv_interface_tests": 12,
+    "automated_helper_tests": 27,
+    "automated_tv_interface_tests": 14,
     "android_release_build": "passed",
     "apk_install_checks": "passed",
     "live_spotify_public_playlist_tracks": 50,

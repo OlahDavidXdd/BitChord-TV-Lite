@@ -37,3 +37,16 @@ test('public SoundCloud searches request fifty songs and support independent pag
  const offsets=[];const api=create({clientId:id,request:async url=>{const parsed=new URL(url);assert.equal(parsed.searchParams.get('limit'),'50');const offset=Number(parsed.searchParams.get('offset'));offsets.push(offset);return {next_href:offset===0?'next':null,collection:[track({id:offset+1})]};}});
  assert.equal((await api.search('music')).nextOffset,50);assert.equal((await api.search('music',50)).tracks[0].id,'51');assert.deepEqual(offsets,[0,50]);
 });
+
+test('sends the track authorization, skips Opus, orders progressive first and keeps fallbacks',async()=>{
+ const urls=[];const api=create({clientId:id,request:async url=>{if(url.includes('/media/')){urls.push(url);return {url:'https://cf.sndcdn.com/'+(url.includes('progressive')?'a.mp3':'b.m3u8')};}return track({track_authorization:'tok en',media:{transcodings:[
+  {url:'https://api-v2.soundcloud.com/media/o/stream/hls',quality:'sq',format:{protocol:'hls',mime_type:'audio/ogg; codecs="opus"'}},
+  {url:streamUrl,quality:'sq',format:{protocol:'hls',mime_type:'audio/mpeg'}},
+  {url:'https://api-v2.soundcloud.com/media/p/stream/progressive',quality:'sq',format:{protocol:'progressive',mime_type:'audio/mpeg'}}]}});}});
+ const stream=await api.stream('123');assert.equal(stream.url,'https://cf.sndcdn.com/a.mp3');assert.equal(stream.manifest,'none');assert.equal(stream.alternates.length,1);assert.equal(stream.alternates[0].manifest,'hls');
+ assert.equal(urls.length,2);assert.ok(urls.every(u=>u.includes('track_authorization=tok%20en')));
+});
+test('search returns up to 50 rows, de-duplicates and hydrates rows that only carry an id',async()=>{
+ const urls=[];const api=create({clientId:id,request:async url=>{urls.push(url);if(url.includes('/tracks?ids=2'))return [track({id:2,title:'Hydrated'})];return {collection:[track({}),track({}),{id:2,kind:'track'}]};}});
+ const result=await api.search('more');assert.ok(urls[0].includes('limit=50'));assert.deepEqual(result.tracks.map(t=>t.id),['123','2']);assert.equal(result.tracks[1].title,'Hydrated');
+});
