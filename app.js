@@ -198,7 +198,7 @@
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode, active = document.activeElement, typing = active && active.tagName === 'INPUT';
     if (key === 10009 || key === 27) {
-      event.preventDefault(); if (typing) active.blur(); else if (view === 'playing') el('close-player').click(); 
+      event.preventDefault(); if (typing) active.blur(); else if (view === 'playing') el('close-player').click();
       else if (active && !el('tabs').contains(active)) { var tab = document.querySelector('#tabs [data-view="' + view + '"]'); if (tab) tab.focus(); }
       else if (view !== 'home') { show('home', false); document.querySelector('#tabs [data-view="home"]').focus(); }
       else { try { tizen.application.getCurrentApplication().exit(); } catch (_) {} } return;
