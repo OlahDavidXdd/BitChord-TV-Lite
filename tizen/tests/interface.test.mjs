@@ -260,3 +260,7 @@ test('official SoundCloud fallback preserves the original queue for Next',async 
  ui.el('addon').value='https://helper.example';ui.submit('settings');ui.el('query').value='Artist';ui.submit('search');ui.el('results').querySelector('button').click();ui.av.listener.onerror();await new Promise(resolve=>setTimeout(resolve,10));assert.equal(ui.el('soundcloud-embed').hidden,false);
  ui.el('next').click();assert.equal(ui.el('soundcloud-embed').hidden,true);assert.equal(ui.el('player-title').textContent,'Second');assert.match(ui.av.url,/2.m3u8$/);
 });
+
+test('YouTube and Spotify searches do not also show SoundCloud as the selected catalogue',async t=>{
+ const ui=await setup(t);ui.el('music-youtube').click();assert.equal(ui.el('sc-browse-modes').hidden,true);ui.el('music-spotify').click();assert.equal(ui.el('sc-browse-modes').hidden,true);ui.el('sc-free-enable').click();assert.equal(ui.el('sc-browse-modes').hidden,false);
+});

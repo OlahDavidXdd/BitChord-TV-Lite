@@ -28,7 +28,7 @@ export function musicServer({ audioHelper = false, library = null, request = asy
   return createServer(async (req, res) => {
     if ((req.url || '').split('?')[0].startsWith('/library/')) {
       if (library) { await library(req, res); return; }
-      res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Headers', 'Authorization'); res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS'); if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; } res.setHeader('Content-Type', 'application/json'); res.statusCode = req.url === '/library/config' ? 200 : 503; res.end(JSON.stringify({ spotify: false, youtube: false, error: 'Library sync requires publisher OAuth credentials and an HTTPS library service. See the helper setup instructions.' })); return;
+      res.setHeader('Cache-Control', 'no-store'); res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Headers', 'Authorization'); res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS'); if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; } res.setHeader('Content-Type', 'application/json'); res.statusCode = req.url === '/library/config' ? 200 : 503; res.end(JSON.stringify({ spotify: false, youtube: false, error: 'Library sync requires publisher OAuth credentials and an HTTPS library service. See the helper setup instructions.' })); return;
     }
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');

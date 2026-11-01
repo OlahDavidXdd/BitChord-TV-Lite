@@ -11,6 +11,7 @@
   el('music-helper-open').onclick = function () { BitChordPlayer.show('settings', false); var details = el('music-helper').closest('details'); if (details) details.open = true; el('music-helper').focus(); };
   function notify(message) { BitChordPlayer.notify(message); }
   function choose(next, open) {
+    el('sc-browse-modes').hidden = next !== 'addon';
     source = next; ++searchGeneration; BitChordPlayer.cancelSearch(); save('bitchord-music-source', source);
     ['addon', 'youtube', 'spotify'].forEach(function (name) { el('source-' + name).classList.toggle('selected', name === source); });
     el('query').placeholder = source === 'spotify' ? 'https://open.spotify.com/playlist/…' : 'Artists, Songs, Albums and More';
@@ -23,7 +24,7 @@
   var enableSoundCloud = BitChordPlayer.enableSoundCloud;
   BitChordPlayer.enableSoundCloud = function (helperUrl) { choose('addon', false); enableSoundCloud(helperUrl); };
   var setSource = BitChordPlayer.setSource;
-  BitChordPlayer.setSource = function (url, message) { choose('addon', false); setSource(url, message); };
+  BitChordPlayer.setSource = function (url, message) { choose('addon', false); setSource(url, message); el('sc-browse-modes').hidden = /\/(yt|spotify)\/?$/.test(url); };
   var addonSettings = el('settings').onsubmit;
   el('settings').onsubmit = function (event) { choose('addon', false); addonSettings(event); };
   el('sc-free-enable').onclick = function () { choose('addon', false); originalSoundCloud(); };
