@@ -17,3 +17,5 @@ The Tizen shell follows the checked-out Android TV implementation at upstream Bi
 This is a visual translation from source, not a certified pixel-for-pixel reproduction. Compose spring motion, artwork-derived color, every preference/theme, platform font fallback and device rendering can differ. No paired Samsung device or browser-control tool was available for screenshot comparison. DOM tests verify behavior, not visual equality.
 
 It is also not a complete Android runtime port: YouTube, lyrics, AI Automix, native effects, account-library sync and other unimplemented services are not represented as working features. Actual music appears after connecting a source and searching/playing; the signed-out Home page intentionally has the same empty-state structure rather than invented recommendations.
+
+Performance deviations for Tizen 5: the blurred full-screen backdrop is now a plain artwork-tinted colour, card focus uses a 3 px white ring instead of a blurred shadow, and card colours are no longer derived per card.

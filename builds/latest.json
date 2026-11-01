@@ -1,5 +1,5 @@
 {
-  "release": "builds-v1.3.0",
+  "release": "builds-v1.4.0-tv",
   "android_source_commit": "a647c92ff2dafe35d908d9af2eccd972a92ae34f",
   "independent_devices": true,
   "physical_device_testing": false,
@@ -19,15 +19,15 @@
     "sha256": "43eb59f731a421e465a26bc5edd30505fe556a3517d55b294d559630f0aa4510"
   },
   "tizen": {
-    "version": "1.3.0",
+    "version": "1.4.0",
     "required_version": "5.0",
     "signing": "UNSIGNED; Samsung certificate required before installation",
-    "soundcloud": "public endpoint search/playback; device network/CORS validation pending; optional free server helper and embedded public-link player",
-    "youtube_music": "official YouTube TV app launch only; no BitChord account/library integration",
-    "spotify": "official Spotify TV app launch only; no BitChord account/library integration",
+    "soundcloud": "public endpoint search/playback with several stream fallbacks; optional helper",
+    "youtube_music": "via optional helper (addons/music, yt-dlp); official YouTube TV app launch also available",
+    "spotify": "via optional helper (catalogue search, audio matched on YouTube); official Spotify TV app launch also available",
     "glass_effects": "optional in Settings; off by default",
     "path": "tizen/releases/BitChord-TV-Lite-unsigned.wgt",
-    "size_bytes": 248066,
-    "sha256": "2409b36575297d00bb11185f42f36823bc03e25e903ad54676c4036a119e3972"
+    "size_bytes": 249165,
+    "sha256": "5afe592d6a5b39a4ad5c77227c23c555696788c15d62e8d4ea4c0d437244df8e"
   }
 }

@@ -23,13 +23,31 @@ async function setup(t, routes = () => ({ status: 404, body: { error: 'Not found
   return { window, document: window.document, calls, av, el: id => window.document.getElementById(id),
     submit(id) { window.document.getElementById(id).dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); } };
 }
-test('top tabs, settings and Return restore navigation without inventing a catalogue', async t => {
+test('top tabs, settings and Return restore navigation and SoundCloud is the default source', async t => {
   const ui = await setup(t);
   assert.equal(ui.el('view-home').hidden, false); assert.equal(ui.el('home-empty').hidden, false);
   assert.equal(ui.document.activeElement.textContent, 'Home');
   ui.document.querySelector('[data-view="settings"]').click(); assert.equal(ui.el('view-settings').hidden, false);
-  ui.document.querySelector('[data-view="search"]').click(); ui.el('query').value = 'song'; ui.submit('search');
-  assert.equal(ui.calls.length, 0); assert.match(ui.el('status').textContent, /Connect an addon/);
+  assert.match(ui.el('view-settings').textContent, /YouTube Music/); assert.match(ui.el('view-settings').textContent, /Spotify/);
+  assert.equal(ui.calls.length, 0); assert.equal(ui.window.localStorage.getItem('bitchord-addon'), null);
+});
+test('YouTube Music and Spotify need the helper, then search through it', async t => {
+  const ui = await setup(t, request => request.url.includes('/yt/search?') ? { body: { tracks: [{ id: 'aaaaaaaaaaa', title: 'YT Song', artist: 'A' }] } } : { body: { tracks: [{ id: '4uLU6hMCjMI75M1A2tKUQC', title: 'SP Song', artist: 'B' }] } });
+  ui.el('yt-enable').click(); assert.match(ui.el('sc-status').textContent, /helper server URL/); assert.equal(ui.calls.length, 0);
+  ui.el('sc-helper').value = 'http://192.168.1.10:8787/'; ui.submit('sc-helper-form');
+  ui.el('yt-enable').click(); assert.equal(ui.window.localStorage.getItem('bitchord-addon'), 'http://192.168.1.10:8787/yt');
+  ui.el('query').value = 'x'; ui.submit('search'); assert.equal(ui.calls.at(-1).url, 'http://192.168.1.10:8787/yt/search?q=x'); assert.equal(ui.el('results').querySelectorAll('button').length, 1);
+  ui.el('sp-enable').click(); assert.equal(ui.window.localStorage.getItem('bitchord-addon'), 'http://192.168.1.10:8787/spotify');
+  ui.el('query').value = 'y'; ui.submit('search'); assert.match(ui.calls.at(-1).url, /\/spotify\/search\?q=y$/);
+});
+test('a stream the TV cannot prepare falls back to the next one, and AVPlay is always closed', async t => {
+  const ui = await setup(t, request => request.url.includes('/search?') ? { body: { tracks: [{ id: '1', title: 'Song', artist: 'A' }] } } : request.url.includes('/manifest.json') ? { body: { id: 't', name: 'T' } }
+    : { body: { url: 'https://cdn.example/bad.m3u8', alternates: [{ url: 'https://cdn.example/good.mp3' }], encrypted: false } });
+  let closed = 0; ui.av.close = () => { closed++; }; ui.av.stop = () => { throw new Error('InvalidStateError'); };
+  ui.av.prepareAsync = (ok, fail) => (ui.av.url.endsWith('bad.m3u8') ? fail() : ok());
+  ui.el('addon').value = 'https://music.example'; ui.submit('settings');
+  ui.window.BitChordPlayer.show('search'); ui.el('query').value = 'song'; ui.submit('search'); ui.el('results').querySelector('button').click();
+  assert.equal(ui.av.url, 'https://cdn.example/good.mp3'); assert.equal(ui.av.state, 'PLAYING'); assert.ok(closed >= 1);
 });
 test('addon search plays a real result with Samsung AVPlay, supports seek, favorites and recent history', async t => {
   const ui = await setup(t, request => {
