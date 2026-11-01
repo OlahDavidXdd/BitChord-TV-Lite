@@ -1,49 +1,26 @@
-# BitChord Android + Tizen TV
+# BitChord: Android and TV Lite
 
-Modified builds of [BitChord](https://github.com/kushagrasinghx/BitChord), with a full native Android APK, a lightweight Tizen 5 TV client, and a SoundCloud addon/login service.
+Independent Android and Samsung Tizen 5 builds. Neither device requires a phone bridge.
 
-## Downloads
+- [Android APK](android/releases/BitChord-Android-arm64-release.apk?raw=true): original BitChord with built-in free public SoundCloud search and playback. Open Search → Addons and select SoundCloud. No SoundCloud developer account or paid API registration is needed. YouTube Music and Spotify retain the original Android integrations; live account testing is pending.
+- [Tizen widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true): public SoundCloud search/playback, remote navigation, favorites, history, and an optional glass appearance in Settings. YouTube and Spotify buttons launch their installed official TV apps; their accounts and libraries are **not integrated into BitChord**.
+- [Browser preview](https://olahdavidxdd.github.io/BitChord-TV-Lite/): interface preview; Samsung AVPlay and app launching require a TV.
+- [Native Android source](https://github.com/OlahDavidXdd/BitChord-TV-Lite/tree/android-soundcloud).
 
-**Installation fix:** the latest Android APK removes an accidental `testOnly` flag that caused normal installers to reject previous downloads. Delete the old downloaded file and download the replacement below.
+## SoundCloud
 
-- **[Android APK — ARM64](android/releases/BitChord-Android-arm64-debug.apk?raw=true)**: full native BitChord, including the original YouTube Music and Spotify integrations. Development-signed, Android 8.0 or newer. The file uses Git LFS; use this download link for the actual APK.
-- **[Samsung Tizen 5 widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true)**: approximately 251 KiB. Requires your Samsung TV certificate signing before installation.
-- **[Live TV interface preview](https://olahdavidxdd.github.io/BitChord-TV-Lite/)**.
-- **[Build checksums and provenance](builds/latest.json)**.
+Android uses the existing NewPipe extractor directly. TV uses public SoundCloud endpoints and offers an official embedded player for public track links. Restricted, paid and preview-only tracks are excluded. Public endpoints can change. Browser CORS restrictions can prevent direct TV searches on some runtimes: an optional free Node helper is provided (`cd addons/soundcloud && npm run start:public`). This is a server option, not a phone dependency. No helper is required by Android. TV network compatibility still needs physical-device validation.
 
-## Integration status
+This free path does not sign into SoundCloud or sync private libraries. The legacy OAuth server remains optional source code and is not configured in these builds.
 
-| Feature | Android APK | Tizen widget |
-| --- | --- | --- |
-| YouTube Music sign-in and playback | Original native integration retained; not account-tested here | Not implemented |
-| Spotify playlists and liked songs | Original native integration retained; tracks matched to YouTube Music | Not implemented |
-| SoundCloud sign-in | Added UI/service flow; inactive until publisher configures the login service | QR flow implemented; needs a configured login service |
-| Compatible HTTP addon search/playback | Included in original app | Implemented through Samsung AVPlay |
-| Original Android TV interface | Native Android project retained in source branch | Source-guided visual adaptation; not verified pixel-identical |
+## Size and loading
 
-Spotify's original integration reads playlists/liked songs and matches them to YouTube Music for playback. It is not direct Spotify audio streaming. The Tizen build is currently a smaller, reduced-feature client; its visual similarity does not establish feature parity.
+The widget bundles a small web interface and uses the TV runtime. Android includes native libraries, media engines and the original full app, so its APK is much larger. Package bytes are recorded in [build metadata](builds/latest.json); installed size differs.
 
-**SoundCloud login is not live in the distributed builds.** No developer credentials or shared login service are embedded. The publisher must configure the HTTPS service described in [OAuth setup](addons/soundcloud/OAUTH.md). Users' passwords are never collected by BitChord.
+Android now uses release optimization and resource shrinking. TV defers artwork loading and the embedded player, swaps fonts during loading, and caches/deduplicates public searches and stream resolution. No physical-device startup benchmark has been measured.
 
-## Source and setup
+## Installation and validation
 
-- [Full native Android source](https://github.com/OlahDavidXdd/BitChord-TV-Lite/tree/android-soundcloud).
-- [Android integration/build notes](android-integration/README.md).
-- [Tizen build, signing and installation](tizen/README.md).
-- [TV design reference and parity limits](tizen/DESIGN-PARITY.md).
-- [SoundCloud server addon](addons/soundcloud/README.md).
+Android is development-signed, ARM64, Android 8+; signature, alignment and install flags are checked. Keep the signing key for future updates. The Tizen widget is **unsigned** and must be signed with a Samsung TV certificate including your TV DUID before installation. See [TV instructions](tizen/README.md).
 
-The Android APK compiled successfully and passed APK signature and alignment verification. Physical Android/Tizen device tests and live account playback have not been performed. The APK is a development build; the widget is unsigned.
-
-## Checks
-
-```sh
-node --test addons/soundcloud/*.test.mjs
-npm ci --prefix tizen
-npm test --prefix tizen
-python3 tizen/scripts/package.py
-```
-
-The Tizen packager enforces a 1 MiB compressed budget. Its test dependencies are not bundled in the widget.
-
-Derived from BitChord; see [LICENSE](LICENSE). The main branch contains TV/addon sources and downloads; `android-soundcloud` contains the full modified native app source.
+Automated interface/extractor tests and live public SoundCloud stream probes pass. Neither build has been tested on physical devices. The TV interface follows Android TV styling but full feature parity and in-app YouTube/Spotify sign-in remain unfinished.

@@ -7,7 +7,13 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 source = root / 'app'
 ET.parse(source / 'config.xml')
-files = ['config.xml', 'index.html', 'app.js', 'style.css', 'icon.png', 'config.js', 'qrcode.js', 'soundcloud-login.js', 'LICENSE-qrcode.txt', 'logo.svg']
+# Keep browser and helper implementations identical.
+import json
+import shutil
+shutil.copyfile(root.parent / 'shared/soundcloud-public.cjs', source / 'soundcloud-public.js')
+bootstrap = json.loads((root.parent / 'shared/soundcloud-bootstrap.json').read_text())
+(source / 'soundcloud-bootstrap.js').write_text('window.SOUNDCLOUD_PUBLIC_BOOTSTRAP = ' + json.dumps(bootstrap) + ';\n')
+files = ['config.xml', 'index.html', 'app.js', 'style.css', 'icon.png', 'config.js', 'soundcloud-public.js', 'soundcloud-bootstrap.js', 'soundcloud-free.js', 'tv-services.js', 'logo.svg']
 output = root / 'dist' / 'BitChord-TV-Lite-unsigned.wgt'
 output.parent.mkdir(exist_ok=True)
 with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:

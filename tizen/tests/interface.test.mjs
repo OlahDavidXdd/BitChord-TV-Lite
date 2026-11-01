@@ -19,7 +19,7 @@ async function setup(t, routes = () => ({ status: 404, body: { error: 'Not found
     setListener(listener) { this.listener = listener; }, prepareAsync(done) { done(); }, play() { this.state = 'PLAYING'; }, pause() { this.state = 'PAUSED'; },
     getDuration() { return this.duration; }, getCurrentTime() { return this.position; }, seekTo(ms) { this.position = ms; } };
   window.webapis = { avplay: av }; window.BITCHORD_CONFIG = {};
-  for (const name of ['qrcode.js', 'app.js', 'soundcloud-login.js']) window.eval(read(name));
+  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js']) window.eval(read(name));
   return { window, document: window.document, calls, av, el: id => window.document.getElementById(id),
     submit(id) { window.document.getElementById(id).dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); } };
 }
@@ -28,8 +28,6 @@ test('top tabs, settings and Return restore navigation without inventing a catal
   assert.equal(ui.el('view-home').hidden, false); assert.equal(ui.el('home-empty').hidden, false);
   assert.equal(ui.document.activeElement.textContent, 'Home');
   ui.document.querySelector('[data-view="settings"]').click(); assert.equal(ui.el('view-settings').hidden, false);
-  ui.el('sc-login').click(); assert.match(ui.el('sc-status').textContent, /publisher must configure/);
-  assert.equal(ui.el('sc-configuration').open, true);
   ui.document.querySelector('[data-view="search"]').click(); ui.el('query').value = 'song'; ui.submit('search');
   assert.equal(ui.calls.length, 0); assert.match(ui.el('status').textContent, /Connect an addon/);
 });
@@ -52,20 +50,23 @@ test('addon search plays a real result with Samsung AVPlay, supports seek, favor
   ui.el('close-player').click(); ui.window.BitChordPlayer.show('library'); assert.equal(ui.el('library-cards').querySelectorAll('button').length, 1);
   ui.window.BitChordPlayer.show('home'); assert.equal(ui.el('home-empty').hidden, true); assert.equal(ui.el('home-cards').querySelectorAll('button').length, 1);
 });
-test('TV phone pairing renders QR, connects addon automatically, and disconnect clears playback/source', async t => {
-  const key = 'k'.repeat(43), id = 'i'.repeat(43), ticket = 't'.repeat(43);
+test('free public SoundCloud enables without login and plays a resolved stream', async t => {
   const ui = await setup(t, request => {
-    if (request.method === 'POST' && request.url.endsWith('/pair')) return { body: { key, pairId: id, loginUrl: 'https://login.example/authorize?id=' + id + '&ticket=' + ticket } };
-    if (request.url.endsWith('/pair/' + id)) { assert.equal(request.headers.Authorization, 'Bearer ' + key); return { body: { connected: true, addonUrl: 'https://login.example/addon/' + key } }; }
-    if (request.url.endsWith('/manifest.json')) return { body: { id: 'soundcloud', name: 'SoundCloud' } };
-    if (request.method === 'DELETE') return { body: { disconnected: true } };
-    return { status: 404, body: { error: 'Unknown fixture' } };
+    if (request.url.includes('/search/tracks?')) return { body: { collection: [{ id: 123, title: 'Public Music', user: { username: 'Artist' }, duration: 120000, policy: 'ALLOW', streamable: true, media: { transcodings: [{ url: 'https://api-v2.soundcloud.com/media/test/stream/hls', quality: 'sq', format: { protocol: 'hls', mime_type: 'audio/mpegurl' } }] } }] } };
+    if (request.url.includes('/media/')) return { body: { url: 'https://cf-hls-media.sndcdn.com/audio.m3u8' } };
+    return { status: 404, body: { error: 'Missing fixture' } };
   });
-  ui.el('sc-service').value = 'https://login.example'; ui.submit('sc-service-form'); ui.el('sc-login').click();
-  assert.ok(ui.el('sc-qr').src.startsWith('data:image/gif;base64,'));
-  assert.equal(ui.el('addon').value, 'https://login.example/addon/' + key);
-  assert.match(ui.el('sc-status').textContent, /Connected/); assert.equal(ui.el('sc-disconnect').hidden, false);
-  ui.el('sc-disconnect').click(); assert.equal(ui.el('addon').value, ''); assert.equal(ui.window.localStorage.getItem('sc-session'), null);
+  ui.el('sc-free-enable').click(); assert.equal(ui.window.localStorage.getItem('bitchord-addon'), 'soundcloud:public');
+  ui.el('query').value = 'song'; ui.submit('search'); await new Promise(setImmediate);
+  ui.el('results').querySelector('button').click(); await new Promise(setImmediate);
+  assert.equal(ui.av.state, 'PLAYING'); assert.equal(ui.av.url, 'https://cf-hls-media.sndcdn.com/audio.m3u8');
+  assert.equal(ui.document.querySelector('#sc-login'), null);
+});
+test('glass option persists and does not trigger network requests', async t => {
+  const ui = await setup(t); assert.equal(ui.el('glass-toggle').getAttribute('aria-pressed'), 'false');
+  ui.el('glass-toggle').click(); assert.equal(ui.el('glass-value').textContent, 'On'); assert.equal(ui.el('tv-shell').classList.contains('glass-on'), true);
+  assert.equal(ui.window.localStorage.getItem('bitchord-tv-glass'), 'on'); assert.equal(ui.calls.length, 0);
+  ui.el('glass-toggle').click(); assert.equal(ui.el('glass-value').textContent, 'Off');
 });
 test('Return on the player closes its screen while the song keeps playing', async t => {
   const ui = await setup(t, request => {
@@ -80,4 +81,30 @@ test('Return on the player closes its screen while the song keeps playing', asyn
   ui.document.dispatchEvent(new ui.window.KeyboardEvent('keydown', { keyCode: 10009, bubbles: true }));
   assert.equal(ui.el('view-playing').hidden, true); assert.equal(ui.el('view-search').hidden, false);
   assert.equal(ui.av.state, 'PLAYING');
+});
+
+test('provider shortcuts launch discovered TV apps without pretending accounts are linked', async t => {
+  const ui = await setup(t), launched = [];
+  ui.window.tizen = { application: { getAppsInfo: done => done([{ id: 'youtube-test', name: 'YouTube' }, { id: 'spotify-test', name: 'Spotify' }]), launch: id => launched.push(id) } };
+  ui.el('open-youtube').click(); ui.el('open-spotify').click();
+  assert.deepEqual(launched, ['youtube-test', 'spotify-test']); assert.match(ui.el('view-settings').textContent, /not connected to BitChord/);
+});
+
+test('public link fallback uses the official widget and stops it on suspend', async t => {
+  const ui = await setup(t), events = {}, calls = [];
+  const widget = { bind: (event, callback) => { events[event] = callback; }, play: () => calls.push('play'), pause: () => calls.push('pause'), toggle: () => calls.push('toggle'), next() {}, prev() {}, getPosition: callback => callback(5000), seekTo: ms => calls.push(ms), getDuration: callback => callback(120000) };
+  const Widget = () => widget;
+  Widget.Events = { READY: 'ready', PLAY: 'play', PAUSE: 'pause', PLAY_PROGRESS: 'progress', ERROR: 'error' };
+  ui.window.SC = { Widget };
+  ui.el('sc-track-link').value = 'https://example.com/artist/track'; ui.submit('sc-link-form');
+  assert.equal(ui.el('soundcloud-embed').children.length, 0);
+  ui.el('sc-track-link').value = 'https://soundcloud.com/artist/track?secret_token=ignored'; ui.submit('sc-link-form');
+  await new Promise(setImmediate);
+  const frame = ui.el('soundcloud-embed').querySelector('iframe');
+  assert.ok(frame); assert.equal(new URL(frame.src).searchParams.get('url'), 'https://soundcloud.com/artist/track');
+  events.ready(); ui.el('toggle').click(); ui.el('forward').click();
+  assert.deepEqual(calls, ['play', 'toggle', 15000]);
+  Object.defineProperty(ui.document, 'hidden', { value: true, configurable: true });
+  ui.document.dispatchEvent(new ui.window.Event('visibilitychange'));
+  assert.equal(calls.at(-1), 'pause'); assert.equal(ui.el('soundcloud-embed').hidden, true);
 });

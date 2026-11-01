@@ -2,7 +2,6 @@
 set -euo pipefail
 integration_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 : "${ANDROID_HOME:?Set ANDROID_HOME to your Android SDK directory}"
-: "${BITCHORD_SOUNDCLOUD_AUTH_URL:?Set the HTTPS origin of the deployed SoundCloud OAuth service}"
 python3 "$integration_dir/prepare-sdk.py" "$ANDROID_HOME"
 checkout="$integration_dir/build/BitChord"
 mkdir -p "$integration_dir/build"
@@ -17,13 +16,13 @@ elif ! git -C "$checkout" apply --reverse --check "$integration_dir/soundcloud-l
   exit 1
 fi
 cd "$checkout"
-./gradlew :app:assembleProdDebug -Pbitchord.bundleWear=false -Pandroid.injected.testOnly=false
+./gradlew :app:assembleProdRelease -Pbitchord.bundleWear=false -Pandroid.injected.build.abi=arm64-v8a -Pandroid.injected.testOnly=false -Pkotlin.compiler.execution.strategy=in-process --max-workers=1
 python3 - "$integration_dir/verify-apk.py" "$ANDROID_HOME" <<'PYVERIFY'
 from pathlib import Path
 import subprocess
 import sys
-apks = [p for p in Path('app/build').rglob('*.apk') if '/apk/prod/debug/' in p.as_posix()]
+apks = [p for p in Path('app/build').rglob('*.apk') if '/apk/prod/release/' in p.as_posix()]
 if not apks:
-    raise SystemExit('No prod/debug APK was produced')
+    raise SystemExit('No prod/release APK was produced')
 subprocess.run([sys.executable, sys.argv[1], sys.argv[2], *map(str, apks)], check=True)
 PYVERIFY

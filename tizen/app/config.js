@@ -1,2 +1,2 @@
-// Publisher: set the HTTPS origin of the deployed OAuth service before packaging.
-window.BITCHORD_CONFIG = { soundCloudAuthUrl: '' };
+// Optional free helper for browsers/TVs that block direct SoundCloud requests.
+window.BITCHORD_CONFIG = { soundCloudPublicHelperUrl: '' };

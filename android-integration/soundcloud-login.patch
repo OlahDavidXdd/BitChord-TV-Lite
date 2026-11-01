@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 8c068c6..0ef6e54 100644
+index 8c068c6..799e777 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -62,7 +62,10 @@ android {
@@ -23,6 +23,15 @@ index 8c068c6..0ef6e54 100644
              resValue("string", "app_name", "BitChord Dev")
          }
          create("prod") {
+@@ -172,7 +175,7 @@ android {
+             )
+             // Null without a keystore to sign with: the build then produces
+             // app-release-unsigned.apk instead of failing outright.
+-            signingConfig = signingConfigs.findByName("release")
++            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+         }
+         /*
+          * The release build, installable next to the dev and prod apps: same R8,
 @@ -194,6 +197,8 @@ android {
          targetCompatibility = JavaVersion.VERSION_17
      }
@@ -32,194 +41,147 @@ index 8c068c6..0ef6e54 100644
          resources {
              // SMBJ's BouncyCastle and jspecify both ship this descriptor.
              excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
-diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
-index 6a9371e..c33f073 100644
---- a/app/src/main/AndroidManifest.xml
-+++ b/app/src/main/AndroidManifest.xml
-@@ -80,6 +80,8 @@
-           so jank is measured on the build users get rather than on a debug
-           build that is slow for its own reasons. No runtime cost.
-         -->
-+        <activity android:name=".auth.soundcloud.SoundCloudLoginActivity" android:exported="false" />
-+
-         <profileable
-             android:shell="true"
-             tools:targetApi="29" />
-diff --git a/app/src/main/java/com/music/bitchord/auth/soundcloud/SoundCloudLoginActivity.kt b/app/src/main/java/com/music/bitchord/auth/soundcloud/SoundCloudLoginActivity.kt
+diff --git a/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt
 new file mode 100644
-index 0000000..48a6319
+index 0000000..a8dec37
 --- /dev/null
-+++ b/app/src/main/java/com/music/bitchord/auth/soundcloud/SoundCloudLoginActivity.kt
-@@ -0,0 +1,153 @@
-+package com.music.bitchord.auth.soundcloud
++++ b/app/src/main/java/com/music/bitchord/data/sources/SoundCloudSource.kt
+@@ -0,0 +1,60 @@
++package com.music.bitchord.data.sources
 +
-+import android.content.Intent
 +import android.net.Uri
-+import android.os.Bundle
-+import android.content.SharedPreferences
-+import android.widget.Button
-+import android.widget.LinearLayout
-+import android.widget.TextView
-+import androidx.activity.ComponentActivity
-+import androidx.lifecycle.lifecycleScope
-+import androidx.security.crypto.EncryptedSharedPreferences
-+import androidx.security.crypto.MasterKey
-+import com.music.bitchord.BuildConfig
-+import com.music.bitchord.data.sources.SourceConfig
-+import com.music.bitchord.data.sources.SourceKind
-+import com.music.bitchord.data.sources.SourceRegistry
-+import kotlinx.coroutines.CancellationException
++import com.music.bitchord.data.innertube.StreamResolver
++import com.music.bitchord.data.model.Song
++import com.music.bitchord.playback.StreamContainer
 +import kotlinx.coroutines.Dispatchers
-+import kotlinx.coroutines.Job
-+import kotlinx.coroutines.delay
-+import kotlinx.coroutines.launch
 +import kotlinx.coroutines.withContext
-+import okhttp3.OkHttpClient
-+import okhttp3.Request
-+import okhttp3.RequestBody.Companion.toRequestBody
-+import org.json.JSONObject
-+import java.util.concurrent.TimeUnit
++import org.schabi.newpipe.extractor.ServiceList
++import org.schabi.newpipe.extractor.stream.ContentAvailability
++import org.schabi.newpipe.extractor.stream.DeliveryMethod
++import org.schabi.newpipe.extractor.stream.StreamInfo
++import org.schabi.newpipe.extractor.stream.StreamInfoItem
++import java.util.Locale
++import java.util.concurrent.ConcurrentHashMap
 +
-+/** Login stays in the user's browser; OAuth application secrets stay on the server. */
-+class SoundCloudLoginActivity : ComponentActivity() {
-+    private lateinit var prefs: SharedPreferences
-+    private lateinit var status: TextView
-+    private lateinit var login: Button
-+    private lateinit var disconnect: Button
-+    private var polling: Job? = null
-+    private val client = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
-+    private val base get() = BuildConfig.SOUNDCLOUD_AUTH_URL.trimEnd('/')
++/** Public SoundCloud catalogue through the already-bundled NewPipe extractor. No OAuth/server. */
++class SoundCloudSource(override val config: SourceConfig) : MusicSource, SourceRegistry.ConfigBacked {
++    override val configId get() = config.id
++    override val kind get() = SourceKind.SOUNDCLOUD
++    override val displayName get() = "SoundCloud"
++    private data class Cached(val at: Long, val rows: List<Song>)
++    private val searches = ConcurrentHashMap<String, Cached>()
++    override suspend fun health(): SourceHealth = SourceHealth.Ok("Free public tracks · no account required")
 +
-+    override fun onCreate(savedInstanceState: Bundle?) {
-+        super.onCreate(savedInstanceState)
-+        val layout = LinearLayout(this).apply {
-+            orientation = LinearLayout.VERTICAL
-+            val pad = (24 * resources.displayMetrics.density).toInt()
-+            setPadding(pad, pad, pad, pad)
-+        }
-+        layout.addView(TextView(this).apply { text = "SoundCloud"; textSize = 30f })
-+        status = TextView(this).apply { textSize = 18f; setPadding(0, 24, 0, 24) }
-+        layout.addView(status)
-+        login = Button(this).apply { text = "Sign in with SoundCloud"; setOnClickListener { signIn() } }
-+        disconnect = Button(this).apply { text = "Disconnect SoundCloud"; setOnClickListener { disconnectAccount() } }
-+        layout.addView(login); layout.addView(disconnect)
-+        layout.addView(Button(this).apply { text = "Back to BitChord"; setOnClickListener { finish() } })
-+        setContentView(layout)
-+        try {
-+            val key = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
-+            prefs = EncryptedSharedPreferences.create(this, "soundcloud_login", key,
-+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
-+        } catch (_: Exception) {
-+            status.text = "Secure storage is unavailable on this device. Sign-in is disabled."
-+            login.isEnabled = false; disconnect.isEnabled = false; return
-+        }
-+        val uri = Uri.parse(base)
-+        if (uri.scheme != "https" || uri.host.isNullOrBlank() || !uri.path.isNullOrEmpty() || uri.query != null || uri.fragment != null || uri.userInfo != null) {
-+            status.text = "This build's SoundCloud login service has not been configured. Ask the app publisher for a configured build."
-+            login.isEnabled = false; disconnect.isEnabled = false; return
-+        }
-+        showState()
-+    }
-+
-+    private fun showState() {
-+        val connected = prefs.getBoolean("connected", false)
-+        status.text = if (connected) "Connected. SoundCloud is available in BitChord's addon search and playback. Your session refreshes automatically."
-+            else "Sign in once using SoundCloud's website. BitChord never sees your password. Return here after signing in."
-+        disconnect.isEnabled = connected; login.text = if (connected) "Sign in again" else "Sign in with SoundCloud"
-+    }
-+
-+    private suspend fun request(path: String, method: String = "GET", key: String? = null): JSONObject = withContext(Dispatchers.IO) {
-+        val builder = Request.Builder().url(base + path)
-+        if (key != null) builder.header("Authorization", "Bearer $key")
-+        if (method == "POST") builder.post(ByteArray(0).toRequestBody())
-+        if (method == "DELETE") builder.delete()
-+        client.newCall(builder.build()).execute().use { response ->
-+            // Deliberately omit URLs/keys and upstream bodies from exceptions and logs.
-+            if (!response.isSuccessful) error(if (response.code == 401) "Sign-in expired. Please sign in again." else "SoundCloud service unavailable (${response.code}). Try again.")
-+            JSONObject(response.body?.string() ?: error("Empty login response"))
-+        }
-+    }
-+
-+    private fun signIn() {
-+        polling?.cancel(); login.isEnabled = false
-+        lifecycleScope.launch {
-+            try {
-+                val data = request("/pair", "POST")
-+                val loginUri = Uri.parse(data.getString("loginUrl"))
-+                val serviceUri = Uri.parse(base)
-+                require(loginUri.scheme == "https" && loginUri.host == serviceUri.host && loginUri.port == serviceUri.port && loginUri.path == "/authorize")
-+                prefs.edit().putString("pair", data.getString("pairId")).putString("pending_key", data.getString("key")).apply()
-+                startActivity(Intent(Intent.ACTION_VIEW, loginUri))
-+                status.text = "Finish signing in with SoundCloud, then return to BitChord."
-+            } catch (e: CancellationException) { throw e }
-+            catch (e: Exception) { status.text = e.message ?: "Could not open SoundCloud sign-in" }
-+            finally { login.isEnabled = true }
-+        }
-+    }
-+
-+    override fun onResume() {
-+        super.onResume()
-+        if (!::prefs.isInitialized || !::login.isInitialized || !login.isEnabled) return
-+        val pair = prefs.getString("pair", null) ?: return
-+        val key = prefs.getString("pending_key", null) ?: return
-+        polling?.cancel()
-+        polling = lifecycleScope.launch {
-+            repeat(300) {
-+                try {
-+                    val data = request("/pair/$pair", key = key)
-+                    if (data.optBoolean("failed")) {
-+                        prefs.edit().remove("pair").remove("pending_key").apply()
-+                        status.text = "SoundCloud sign-in was cancelled or failed. You can try again."; return@launch
-+                    }
-+                    if (data.optBoolean("connected")) {
-+                        val expected = "$base/addon/$key"
-+                        require(data.getString("addonUrl") == expected)
-+                        val source = SourceConfig(id = "soundcloud-login", kind = SourceKind.ADDON,
-+                            label = "SoundCloud", baseUrl = expected, enabled = true, allowDownloads = false)
-+                        if (SourceRegistry.config(source.id) == null) SourceRegistry.add(source) else SourceRegistry.update(source)
-+                        prefs.edit().putString("key", key).putBoolean("connected", true).remove("pair").remove("pending_key").apply()
-+                        showState(); return@launch
-+                    }
-+                    status.text = "Waiting for SoundCloud sign-in… Finish in the browser, then return here."
-+                } catch (e: CancellationException) { throw e }
-+                catch (e: Exception) { status.text = e.message ?: "Could not check sign-in"; return@launch }
-+                delay(2000)
++    override suspend fun search(query: String, limit: Int, waitForAll: Boolean, request: StreamRequest?): List<Song> = withContext(Dispatchers.IO) {
++        if (query.isBlank()) return@withContext emptyList()
++        val key = query.trim()
++        searches[key]?.takeIf { android.os.SystemClock.elapsedRealtime() - it.at < 300_000 }?.let { return@withContext it.rows.take(limit) }
++        StreamResolver.initializeExtractor()
++        val extractor = ServiceList.SoundCloud.getSearchExtractor(key, listOf("tracks"), "")
++        extractor.fetchPage()
++        val rows = extractor.initialPage.items.filterIsInstance<StreamInfoItem>()
++            .filter { it.contentAvailability != ContentAvailability.PAID && it.contentAvailability != ContentAvailability.MEMBERSHIP }
++            .map { item ->
++                Song(videoId = SourceRegistry.trackKey(configId, item.url), title = item.name,
++                    artist = item.uploaderName, thumbnailUrl = item.thumbnails.maxByOrNull { it.width }?.url,
++                    durationText = item.duration.takeIf { it > 0 }?.let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }, sourceQuality = "HIGH")
 +            }
-+            status.text = "Sign-in expired. Please start again."
-+        }
++        if (searches.size >= 100) searches.clear()
++        searches[key] = Cached(android.os.SystemClock.elapsedRealtime(), rows)
++        rows.take(limit)
 +    }
-+    override fun onPause() { polling?.cancel(); super.onPause() }
 +
-+    private fun disconnectAccount() {
-+        val key = prefs.getString("key", null) ?: return
-+        disconnect.isEnabled = false
-+        lifecycleScope.launch {
-+            try {
-+                request("/session", "DELETE", key)
-+                SourceRegistry.remove("soundcloud-login")
-+                prefs.edit().clear().apply(); showState()
-+            } catch (e: CancellationException) { throw e }
-+            catch (e: Exception) { status.text = e.message ?: "Disconnect failed"; disconnect.isEnabled = true }
-+        }
++    override suspend fun stream(trackId: String, request: StreamRequest): SourceStream? = withContext(Dispatchers.IO) {
++        if (request is StreamRequest.Lossless) return@withContext null
++        val uri = Uri.parse(trackId)
++        require(uri.scheme == "https" && uri.host in setOf("soundcloud.com", "www.soundcloud.com") && uri.userInfo == null) { "Invalid SoundCloud track URL" }
++        StreamResolver.initializeExtractor()
++        val info = StreamInfo.getInfo(ServiceList.SoundCloud, trackId)
++        require(info.contentAvailability != ContentAvailability.PAID && info.contentAvailability != ContentAvailability.MEMBERSHIP) { "This track is restricted on SoundCloud" }
++        val candidates = info.audioStreams.filter { it.isUrl && it.content.startsWith("https://") }
++        val cap = (request as? StreamRequest.Capped)?.maxKbps
++        val selected = (if (cap != null) candidates.filter { it.averageBitrate <= cap } else candidates)
++            .maxByOrNull { it.averageBitrate } ?: candidates.minByOrNull { it.averageBitrate } ?: return@withContext null
++        val url = selected.content
++        if (selected.deliveryMethod == DeliveryMethod.HLS) StreamContainer.declare(url, "hls")
++        SourceStream(url = url, format = StreamFormat(codec = selected.format?.suffix ?: "mp3", kbps = selected.averageBitrate.takeIf { it > 0 }), durationSec = info.duration.takeIf { it > 0 }?.toInt())
 +    }
 +}
+diff --git a/app/src/main/java/com/music/bitchord/data/sources/SourceKind.kt b/app/src/main/java/com/music/bitchord/data/sources/SourceKind.kt
+index 06c02bf..5acc3c6 100644
+--- a/app/src/main/java/com/music/bitchord/data/sources/SourceKind.kt
++++ b/app/src/main/java/com/music/bitchord/data/sources/SourceKind.kt
+@@ -127,6 +127,15 @@ enum class SourceKind(
+         rank = 1,
+     ),
+ 
++    SOUNDCLOUD(
++        label = "SoundCloud",
++        detail = "Free public SoundCloud tracks. Search via Search → Addons. No login or API key required.",
++        labels = listOf("Free", "Public tracks", "No login"),
++        needsServer = false,
++        canServeLossless = false,
++        rank = 4,
++    ),
++
+     JIOSAAVN(
+         label = "JioSaavn",
+         detail = "Optional JioSaavn streams up to 320kbps AAC/MP4. Catalogue matching can select the wrong song.",
+diff --git a/app/src/main/java/com/music/bitchord/data/sources/SourceRegistry.kt b/app/src/main/java/com/music/bitchord/data/sources/SourceRegistry.kt
+index ceb73db..3e3b829 100644
+--- a/app/src/main/java/com/music/bitchord/data/sources/SourceRegistry.kt
++++ b/app/src/main/java/com/music/bitchord/data/sources/SourceRegistry.kt
+@@ -142,7 +142,7 @@ object SourceRegistry {
+         // default is the policy: JioSaavn off, YouTube on.
+         val seeded = stored + BUILT_IN_KINDS
+             .filter { kind -> stored.none { it.kind == kind } }
+-            .map { SourceConfig(kind = it) }
++            .map { SourceConfig(kind = it, allowDownloads = it != SourceKind.SOUNDCLOUD) }
+ 
+         // The retired built-in module is removed, while a custom module entered
+         // by the user is preserved.
+@@ -501,6 +501,7 @@ object SourceRegistry {
+         // Same protocol, same implementation — the kinds differ only in rank.
+         SourceKind.CUSTOM_MODULE -> ModuleSource(config)
+         SourceKind.MODULE -> ModuleSource(config)
++        SourceKind.SOUNDCLOUD -> SoundCloudSource(config)
+         SourceKind.JIOSAAVN -> JioSaavnSource(config)
+         SourceKind.YOUTUBE -> YouTubeSource(config)
+     }
+@@ -546,7 +547,7 @@ object SourceRegistry {
+             .build()
+             .toString()
+ 
+-    private val BUILT_IN_KINDS = listOf(SourceKind.JIOSAAVN, SourceKind.YOUTUBE)
++    private val BUILT_IN_KINDS = listOf(SourceKind.JIOSAAVN, SourceKind.YOUTUBE, SourceKind.SOUNDCLOUD)
+ 
+     private const val KEY_SOURCES = "sources"
+     /** One-shot migration: existing users must explicitly opt in again. */
+diff --git a/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt b/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt
+index d8427ad..5a164ed 100644
+--- a/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt
++++ b/app/src/main/java/com/music/bitchord/ui/MainViewModel.kt
+@@ -2171,7 +2171,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
+         // Every enabled addon, including ones the connection's quality setting
+         // skips for playback: their rows are still worth seeing, and the
+         // search page dims them and says why on a tap — see `isBlocked` there.
+-        val addons = SourceRegistry.active().filterIsInstance<AddonSource>()
++        val addons = SourceRegistry.active().filter { it is AddonSource || it.kind == com.music.bitchord.data.sources.SourceKind.SOUNDCLOUD }
+         if (addons.isEmpty()) {
+             _addonResults.value = UiState.Error(text(R.string.search_addons_none))
+             return
 diff --git a/app/src/main/java/com/music/bitchord/ui/screens/SourcesScreen.kt b/app/src/main/java/com/music/bitchord/ui/screens/SourcesScreen.kt
-index 57dd2ad..e159156 100644
+index 57dd2ad..b822406 100644
 --- a/app/src/main/java/com/music/bitchord/ui/screens/SourcesScreen.kt
 +++ b/app/src/main/java/com/music/bitchord/ui/screens/SourcesScreen.kt
-@@ -285,6 +285,11 @@ fun SourcesScreen(
-                 BluetoothCodecPermissionRow()
-             }
- 
-+            RowDivider()
-+            androidx.compose.material3.TextButton(
-+                onClick = { context.startActivity(Intent(context, com.music.bitchord.auth.soundcloud.SoundCloudLoginActivity::class.java)) },
-+                modifier = Modifier.fillMaxWidth(),
-+            ) { Text("Sign in with SoundCloud") }
-             RowDivider()
-             AddSourceRow(
-                 onClick = { onEditSource(SourceConfig(kind = SourceKind.ADDON)) },
+@@ -789,6 +789,7 @@ private fun SourceRow(
+                 SourceKind.ADDON -> SfIcons.Extension
+                 SourceKind.CUSTOM_MODULE -> SfIcons.Extension
+                 SourceKind.MODULE -> SfIcons.Extension
++                SourceKind.SOUNDCLOUD -> SfIcons.Cloud
+                 SourceKind.JIOSAAVN -> SfIcons.GraphicEq // or some other icon
+                 SourceKind.YOUTUBE -> SfIcons.PlayCircle
+             },
 diff --git a/app/src/main/res/xml/backup_rules.xml b/app/src/main/res/xml/backup_rules.xml
 index f1706d5..50fcf94 100644
 --- a/app/src/main/res/xml/backup_rules.xml
@@ -254,6 +216,21 @@ index b036253..78e8ed2 100644
          <exclude domain="sharedpref" path="bitchord_auth.xml" />
          <exclude domain="sharedpref" path="bitchord_auth_plain.xml" />
          <exclude domain="sharedpref" path="bitchord_sources.xml" />
+diff --git a/build.gradle.kts b/build.gradle.kts
+index eeca68e..b213139 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -41,8 +41,8 @@ buildscript {
+  * No "v" in the name — the in-app updater reads it as a number; the "v" is the
+  * release tag's alone.
+  */
+-extra["bitchordVersionCode"] = 36
+-extra["bitchordVersionName"] = "1.9"
++extra["bitchordVersionCode"] = 37
++extra["bitchordVersionName"] = "1.9-free-sc1"
+ 
+ /*
+  * Bump this by hand before cutting each sideloaded test build ("beta2",
 diff --git a/gradle.properties b/gradle.properties
 index cf96469..887a083 100644
 --- a/gradle.properties
@@ -267,6 +244,20 @@ index cf96469..887a083 100644
 +android.suppressUnsupportedCompileSdk=36,37
 +# Allow APKs built for a selected ABI to install through the normal package installer.
 +android.injected.testOnly=false
+diff --git a/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/innertube/StreamResolver.kt b/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/innertube/StreamResolver.kt
+index fe2fa1e..f667a47 100644
+--- a/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/innertube/StreamResolver.kt
++++ b/shared/src/jvmSharedMain/kotlin/com/music/bitchord/data/innertube/StreamResolver.kt
+@@ -178,6 +178,9 @@ object StreamResolver {
+ 
+     private val init by lazy { NewPipe.init(OkHttpDownloader()) }
+ 
++    /** Reuse the same downloader for built-in public extractors. */
++    fun initializeExtractor() { init }
++
+     /**
+      * The extractor's own leash on [Http.client].
+      *
 diff --git a/tv/build.gradle.kts b/tv/build.gradle.kts
 index 7ebc31e..0c2034f 100644
 --- a/tv/build.gradle.kts

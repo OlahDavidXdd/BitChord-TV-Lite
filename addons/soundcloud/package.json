@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "start:oauth": "node oauth.mjs"
+    "start:oauth": "node oauth.mjs",
+    "start:public": "node public-server.mjs"
   }
 }
