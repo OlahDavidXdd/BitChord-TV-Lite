@@ -9,6 +9,7 @@
   try { pair = JSON.parse(read('pair') || 'null'); } catch (_) { pair = null; write('pair', ''); }
   function message(text) { el('sc-status').textContent = text; }
   function origin(value) {
+    if (typeof value !== 'string' || !/^https:\/\//i.test(value)) return '';
     var url = document.createElement('a'); url.href = value;
     if (url.protocol !== 'https:' || !url.host || url.username || url.password || (url.pathname && url.pathname !== '/') || url.search || url.hash) return '';
     return url.protocol + '//' + url.host;
