@@ -19,7 +19,7 @@ async function setup(t, routes = () => ({ status: 404, body: { error: 'Not found
     setListener(listener) { this.listener = listener; }, prepareAsync(done) { done(); }, play() { this.state = 'PLAYING'; }, pause() { this.state = 'PAUSED'; },
     getDuration() { return this.duration; }, getCurrentTime() { return this.position; }, seekTo(ms) { this.position = ms; } };
   window.webapis = { avplay: av }; window.BITCHORD_CONFIG = {};
-  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js', 'soundcloud-browse.js']) window.eval(read(name));
+  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js', 'soundcloud-browse.js', 'library-sync.js']) window.eval(read(name));
   return { window, document: window.document, calls, av, el: id => window.document.getElementById(id),
     submit(id) { window.document.getElementById(id).dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); } };
 }
@@ -216,4 +216,47 @@ test('Stop cancels a pending YouTube player request before it can start music',a
  ui.el('music-youtube').click();ui.el('query').value='Song';ui.submit('search');await new Promise(setImmediate);
  ui.el('results').querySelector('button').click();ui.document.dispatchEvent(new ui.window.KeyboardEvent('keydown',{keyCode:413,bubbles:true}));await new Promise(setImmediate);
  assert.equal(started,0);assert.equal(ui.el('youtube-embed').hidden,true);
+});
+
+test('Back exits a text field and hardware Back does not leave focus in the keyboard',async t=>{
+ const ui=await setup(t);ui.window.BitChordPlayer.show('search',true);ui.el('query').focus();
+ ui.document.dispatchEvent(new ui.window.KeyboardEvent('keydown',{keyCode:10009,bubbles:true}));assert.notEqual(ui.document.activeElement,ui.el('query'));assert.equal(ui.document.activeElement.getAttribute('data-view'),'search');
+ const duplicate=new ui.window.Event('tizenhwkey',{cancelable:true});duplicate.keyName='back';ui.document.dispatchEvent(duplicate);assert.equal(ui.el('view-search').hidden,false);
+ ui.el('query').focus();const back=new ui.window.Event('tizenhwkey',{cancelable:true});back.keyName='back';await new Promise(resolve=>setTimeout(resolve,260));ui.document.dispatchEvent(back);assert.notEqual(ui.document.activeElement,ui.el('query'));
+});
+test('official SoundCloud frame cannot trap remote focus and Exit closes the session',async t=>{
+ const ui=await setup(t);let paused=0;const Widget=()=>({bind(){},pause(){paused++;}});Widget.Events={};ui.window.SC={Widget};
+ ui.el('sc-track-link').value='https://soundcloud.com/artist/song';ui.submit('sc-link-form');await new Promise(setImmediate);
+ const frame=ui.el('soundcloud-embed').querySelector('iframe');assert.equal(frame.tabIndex,-1);assert.equal(frame.style.pointerEvents,'none');assert.equal(ui.document.activeElement,ui.el('exit-embedded'));
+ ui.el('exit-embedded').click();assert.equal(paused,1);assert.equal(ui.el('soundcloud-embed').hidden,true);assert.equal(ui.el('view-playing').hidden,true);assert.equal(ui.el('exit-embedded').hidden,true);
+});
+test('YouTube search 403 refreshes public configuration before displaying results',async t=>{
+ let posts=0;const ui=await setup(t,request=>{posts++;return posts===1?{status:403,body:{error:'Forbidden'}}:{body:{contents:[{videoRenderer:{videoId:'aaaaaaaaaaa',title:{simpleText:'Song'}}}]}};});
+ const send=ui.window.XMLHttpRequest.prototype.send;ui.window.XMLHttpRequest.prototype.send=function(){if(this.url==='https://music.youtube.com/'){ui.calls.push(this);this.status=200;this.responseText='{"INNERTUBE_CLIENT_VERSION":"1.current","INNERTUBE_API_KEY":"public-key"}';this.onload();}else send.call(this);};
+ ui.el('music-youtube').click();ui.el('query').value='Song';ui.submit('search');await new Promise(setImmediate);assert.equal(ui.el('results').querySelectorAll('button').length,1);assert.equal(posts,2);
+});
+
+test('library sync displays account playlists and loads authorized tracks for playback',async t=>{
+ const ui=await setup(t,request=>request.url.includes('/library/collections')?{body:{items:[{id:'a'.repeat(22),title:'Private list',artist:'Spotify',type:'playlist'}]}}:request.url.includes('/library/tracks')?{body:{tracks:[{id:'b'.repeat(22),title:'Song',artist:'Artist',source:'Spotify'}]}}:{body:{connected:true}});
+ ui.el('library-service').value='https://library.example';ui.submit('library-service-form');ui.window.localStorage.setItem('bitchord-library-token-spotify','a'.repeat(43));
+ ui.el('library-spotify').click();await new Promise(setImmediate);assert.equal(ui.el('account-library').hidden,false);assert.match(ui.el('account-library-status').textContent,/synced/);assert.match(ui.el('account-library-cards').textContent,/Private list/);
+ const call=ui.calls.find(request=>request.url.includes('/library/collections'));assert.equal(call.headers.Authorization,'Bearer '+'a'.repeat(43));
+ ui.el('account-library-cards').querySelector('button').click();await new Promise(setImmediate);assert.equal(ui.el('search-heading').textContent,'Private list');assert.match(ui.el('results').textContent,/Song/);
+});
+test('unconfigured account sync explains missing publisher setup rather than pretending to connect',async t=>{
+ const ui=await setup(t,()=>({body:{spotify:false,youtube:false}}));
+ ui.el('library-service').value='https://library.example';ui.submit('library-service-form');ui.el('connect-spotify').click();await new Promise(setImmediate);
+ assert.match(ui.el('library-account-status').textContent,/not configured.*OAuth credentials/);assert.equal(ui.window.localStorage.getItem('bitchord-library-token-spotify'),null);
+});
+test('persistent direct YouTube rejection stays visible and offers music settings',async t=>{
+ const ui=await setup(t,()=>({status:403,body:{error:'Forbidden'}}));ui.el('music-youtube').click();ui.el('query').value='Song';ui.submit('search');await new Promise(setImmediate);
+ assert.equal(ui.el('music-error').hidden,false);assert.match(ui.el('music-problem').textContent,/YouTube refused direct TV search/);assert.equal(ui.el('music-helper-open').hidden,false);
+ ui.el('music-helper-open').click();assert.equal(ui.el('view-settings').hidden,false);assert.equal(ui.document.activeElement,ui.el('music-helper'));
+});
+
+test('official SoundCloud fallback preserves the original queue for Next',async t=>{
+ const ui=await setup(t,request=>request.url.includes('/search?')?{body:{tracks:[{id:'1',title:'First',artist:'Artist',source:'SoundCloud',permalinkURL:'https://soundcloud.com/artist/first'},{id:'2',title:'Second',artist:'Artist',source:'SoundCloud',permalinkURL:'https://soundcloud.com/artist/second'}]}}:request.url.includes('/manifest.json')?{body:{name:'SoundCloud'}}:{body:{url:'https://cdn.example/'+request.url.split('/').pop()+'.m3u8'}});
+ const Widget=()=>({bind(){},pause(){}});Widget.Events={};ui.window.SC={Widget};
+ ui.el('addon').value='https://helper.example';ui.submit('settings');ui.el('query').value='Artist';ui.submit('search');ui.el('results').querySelector('button').click();ui.av.listener.onerror();await new Promise(resolve=>setTimeout(resolve,10));assert.equal(ui.el('soundcloud-embed').hidden,false);
+ ui.el('next').click();assert.equal(ui.el('soundcloud-embed').hidden,true);assert.equal(ui.el('player-title').textContent,'Second');assert.match(ui.av.url,/2.m3u8$/);
 });

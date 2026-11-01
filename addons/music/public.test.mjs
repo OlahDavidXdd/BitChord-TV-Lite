@@ -36,3 +36,19 @@ test('free helper serves parsed metadata and cannot proxy arbitrary destinations
   assert.equal((await fetch(base + '/spotify/public?url=https://evil.example')).status, 502);
   assert.equal((await fetch(base + '/youtube/search?q=Song', { method: 'POST' })).status, 405);
 });
+
+test('a rejected YouTube search refreshes current public client configuration and retries once',async()=>{
+ let posts=0,gets=0;
+ const api=music.create({request:async(url,body)=>{
+  if(!body){gets++;return 'ytcfg.set({"INNERTUBE_CLIENT_VERSION":"1.current.01","INNERTUBE_API_KEY":"public-key","VISITOR_DATA":"public-visitor"});';}
+  posts++;if(posts===1)throw Object.assign(Error('Forbidden'),{status:403});
+  assert.equal(new URL(url).searchParams.get('key'),'public-key');assert.equal(body.context.client.clientVersion,'1.current.01');assert.equal(body.context.client.visitorData,'public-visitor');return yt;
+ }});
+ assert.equal((await api.search('Song')).tracks.length,1);assert.equal(posts,2);assert.equal(gets,1);
+ await api.search('Song');assert.equal(posts,2);
+});
+test('persistent YouTube rejection stops retrying and explains the helper requirement',async()=>{
+ let posts=0;
+ const api=music.create({request:async(url,body)=>{if(!body)return '{"INNERTUBE_CLIENT_VERSION":"1.current","INNERTUBE_API_KEY":"public-key"}';posts++;throw Object.assign(Error('Forbidden'),{status:403});}});
+ await assert.rejects(api.search('Song'),error=>error.code==='YOUTUBE_DIRECT_FORBIDDEN'&&/Music helper/.test(error.message));assert.equal(posts,2);
+});

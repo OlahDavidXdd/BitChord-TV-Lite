@@ -34,3 +34,7 @@ Set that origin in TV Settings → Free helper server, then select SoundCloud. T
 The actual converter was tested with a live allowed SoundCloud AAC stream, and its MP3 output decoded successfully. Byte ranges, HEAD requests and concurrent-request deduplication have automated tests. Samsung hardware itself remains untested.
 
 TV 1.5.1 uses native AVPlay audio for YouTube Music and matched Spotify selections when **Music helper** is configured. Install yt-dlp on that helper; it uses `/yt/search`, `/yt/stream` and range-proxied `/yt/audio` routes. Next/previous and completion stay in the selected playlist. Leave Music helper blank to use direct public search and the visible official YouTube player. The separate SoundCloud helper field does not silently enable YouTube helper mode.
+
+## Account library sync
+
+The new read-only connection flow is documented in [LIBRARY-SYNC.md](LIBRARY-SYNC.md). It needs publisher-owned Spotify/Google OAuth registrations and an HTTPS service; neither has been configured for the released widget. The public SoundCloud and public playlist features do not need these credentials.

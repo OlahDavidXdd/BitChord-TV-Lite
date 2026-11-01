@@ -1,0 +1,6 @@
+
+# Private OAuth library tokens
+addons/music/data/
+addons/music/.env
+addons/music/.env.*
+!addons/music/.env.example

@@ -1,14 +1,17 @@
+import { createLibraryService, libraryStore } from './library-auth.mjs';
 import { compatibleSoundCloud } from './compatible-soundcloud.mjs';
 import { createYouTube, createSpotify, createHelper } from './audio-helper.mjs';
 export { createYouTube, createSpotify, createHelper, runYtDlp } from './audio-helper.mjs';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 const { create } = createRequire(import.meta.url)('../../shared/music-public.cjs');
-export function musicServer({ audioHelper = false, request = async (url, body) => {
-  const response = await fetch(url, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
-  if (!response.ok) throw new Error(`Music service request failed (${response.status})`);
+export function musicServer({ audioHelper = false, library = null, request = async (url, body) => {
+  const headers = body ? { 'Content-Type': 'application/json' } : {};
+  if (body?.context?.client?.clientName === 'WEB_REMIX') { headers['X-YouTube-Client-Name'] = '67'; headers['X-YouTube-Client-Version'] = body.context.client.clientVersion; if (body.context.client.visitorData) headers['X-Goog-Visitor-Id'] = body.context.client.visitorData; }
+  const response = await fetch(url, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
+  if (!response.ok) throw Object.assign(new Error(`Music service request failed (${response.status})`), { status: response.status });
   return response.text();
 } } = {}) {
   const client = create({ request });
@@ -23,6 +26,10 @@ export function musicServer({ audioHelper = false, request = async (url, body) =
     audioHandler = createHelper({ soundcloud, youtube, spotify }).listeners('request')[0];
   }
   return createServer(async (req, res) => {
+    if ((req.url || '').split('?')[0].startsWith('/library/')) {
+      if (library) { await library(req, res); return; }
+      res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Headers', 'Authorization'); res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS'); if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; } res.setHeader('Content-Type', 'application/json'); res.statusCode = req.url === '/library/config' ? 200 : 503; res.end(JSON.stringify({ spotify: false, youtube: false, error: 'Library sync requires publisher OAuth credentials and an HTTPS library service. See the helper setup instructions.' })); return;
+    }
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Range');
@@ -45,5 +52,6 @@ export function musicServer({ audioHelper = false, request = async (url, body) =
   });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  musicServer({ audioHelper: true }).listen(Number(process.env.PORT || 8788), process.env.HOST || '127.0.0.1', () => console.log('BitChord public music helper listening; no account credentials required'));
+  const library = process.env.LIBRARY_PUBLIC_URL && process.env.LIBRARY_STORE_KEY ? createLibraryService({ publicUrl: process.env.LIBRARY_PUBLIC_URL, store: libraryStore(process.env.LIBRARY_STORE_FILE || fileURLToPath(new URL('./data/library.enc', import.meta.url)), process.env.LIBRARY_STORE_KEY), credentials: { spotify: { clientId: process.env.SPOTIFY_CLIENT_ID, clientSecret: process.env.SPOTIFY_CLIENT_SECRET }, youtube: { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET } } }) : null;
+  musicServer({ audioHelper: true, library }).listen(Number(process.env.PORT || 8788), process.env.HOST || '127.0.0.1', () => console.log('BitChord public music helper listening; no account credentials required'));
 }

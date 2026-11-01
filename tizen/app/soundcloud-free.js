@@ -24,6 +24,7 @@
   glass(read('bitchord-tv-glass') === 'on');
   el('glass-toggle').onclick = function () { glass(el('glass-toggle').getAttribute('aria-pressed') !== 'true'); };
 
+  var queuedNavigation = null;
   var widgetPromise, pendingGeneration = 0;
   document.addEventListener('bitchord-playback-stop', function () { ++pendingGeneration; });
   document.addEventListener('visibilitychange', function () { if (document.hidden) ++pendingGeneration; });
@@ -38,32 +39,36 @@
       document.head.appendChild(script);
     }); return widgetPromise;
   }
-  window.openSoundCloudTrack = function (url) { el('sc-track-link').value = url; var event = document.createEvent('Event'); event.initEvent('submit', true, true); el('sc-link-form').dispatchEvent(event); };
+  window.openSoundCloudTrack = function (url, navigation) { queuedNavigation = navigation || null; el('sc-track-link').value = url; var event = document.createEvent('Event'); event.initEvent('submit', true, true); el('sc-link-form').dispatchEvent(event); };
   el('sc-link-form').onsubmit = function (event) {
     event.preventDefault(); var link = document.createElement('a'); link.href = el('sc-track-link').value.trim();
     if (link.protocol !== 'https:' || !/^(www\.)?soundcloud\.com$/.test(link.hostname) || link.pathname.split('/').filter(Boolean).length < 2 || link.username || link.password) {
       el('sc-status').textContent = 'Use a full https://soundcloud.com/artist/track or playlist link.'; return;
     }
-    var url = 'https://soundcloud.com' + link.pathname;
+    var url = 'https://soundcloud.com' + link.pathname, navigation = queuedNavigation; queuedNavigation = null;
     BitChordPlayer.notify('Loading the official SoundCloud player…');
     var request = ++pendingGeneration;
     widgetAPI().then(function (SC) {
       if (request !== pendingGeneration) return;
-      var host = el('soundcloud-embed'), frame = document.createElement('iframe'); frame.title = 'SoundCloud player'; frame.allow = 'autoplay';
+      var host = el('soundcloud-embed'), frame = document.createElement('iframe'); frame.title = 'SoundCloud player'; frame.tabIndex = -1; frame.style.pointerEvents = 'none'; frame.allow = 'autoplay';
       frame.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(url) + '&auto_play=true&show_user=true&show_artwork=true';
-      var widget, active = true;
+      var widget, active = true, focusTimer;
+      function restoreFocus() { if (active && document.activeElement === frame) el('exit-embedded').focus(); }
+      frame.addEventListener('focus', restoreFocus);
       var controller = {
-        stop: function () { active = false; try { if (widget) widget.pause(); } catch (_) {} host.hidden = true; host.textContent = ''; el('favorite').disabled = false; },
+        stop: function () { active = false; clearInterval(focusTimer); el('exit-embedded').hidden = true; try { if (widget) widget.pause(); } catch (_) {} host.hidden = true; host.textContent = ''; el('favorite').disabled = false; },
         toggle: function () { if (widget) widget.toggle(); },
-        next: function () { if (widget) widget.next(); }, previous: function () { if (widget) widget.prev(); },
+        next: function () { if (navigation) navigation.next(); else if (widget) widget.next(); }, previous: function () { if (navigation) navigation.previous(); else if (widget) widget.prev(); },
         seek: function (seconds) { if (widget) widget.getPosition(function (ms) { if (active) widget.seekTo(Math.max(0, ms + seconds * 1000)); }); }
       };
       BitChordPlayer.external(controller, 'SoundCloud'); host.textContent = ''; host.appendChild(frame); host.hidden = false; el('favorite').disabled = true;
+      el('exit-embedded').hidden = false; el('exit-embedded').focus(); focusTimer = setInterval(restoreFocus, 200);
       widget = SC.Widget(frame);
       widget.bind(SC.Widget.Events.READY, function () { if (active) { widget.play(); BitChordPlayer.notify('SoundCloud player ready. Use Play if playback does not start automatically.'); } });
       widget.bind(SC.Widget.Events.PLAY, function () { if (active) el('toggle').textContent = 'Ⅱ'; });
       widget.bind(SC.Widget.Events.PAUSE, function () { if (active) el('toggle').textContent = '▶'; });
       widget.bind(SC.Widget.Events.PLAY_PROGRESS, function (data) { if (active) widget.getDuration(function (duration) { if (active) BitChordPlayer.externalTime(data.currentPosition / 1000, duration / 1000); }); });
+      widget.bind(SC.Widget.Events.FINISH, function () { if (active) { if (navigation) navigation.next(); else { el('toggle').textContent = '▶'; BitChordPlayer.notify('SoundCloud playback finished. Use Exit player to return.'); } } });
       widget.bind(SC.Widget.Events.ERROR, function () { if (active) BitChordPlayer.notify('SoundCloud cannot play this link here. The uploader may restrict embedding or availability.'); });
     }).catch(function (error) { BitChordPlayer.notify(error.message); });
   };

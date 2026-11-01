@@ -36,3 +36,11 @@ Android Search → Addons now requests up to 200 SoundCloud songs. Search a name
 Spotify playlist tracks begin matching as each page arrives, with three concurrent requests and cached successful matches. Recent complete playlist/library metadata is reused for two minutes and keyed by the authenticated bearer, preventing reuse across accounts. Live private Spotify account timing remains unmeasured.
 
 A live SoundCloud check returned 200 search rows, 198 artist tracks, 20 artist albums and 27 artist playlists. Three seconds of an allowed AAC HLS stream decoded successfully using FFmpeg. This validates the sample stream, not every uploader or Samsung's hardware decoder. Actual phone/TV end-to-end testing remains pending.
+
+## TV 1.6: Back, SoundCloud exit, YouTube rejection and account connectors
+
+Back/Escape now closes text entry and focuses the current navigation tab; Samsung hardware Back is handled separately and duplicate key/hardware events are suppressed. The official SoundCloud iframe no longer receives pointer/tab focus, an Exit player button stays outside it, and exiting stops/removes the session. Next/previous/completion preserve the original queue after native SoundCloud fallback. The launcher icon is resized from Android's default bundled launcher artwork.
+
+Direct YouTube Music search now refreshes the live public client configuration after a 403, sends matching client headers and retries once. Persistent rejection produces a persistent explanation with a Music settings button. This cannot override Google's refusal of a particular TV origin; a configured yt-dlp music helper remains the supported alternative. The live YouTube endpoint could not be verified from the build environment.
+
+Read-only Spotify/YouTube account-sync code and TV connection/library pages are included, but **private sync is not activated**: provider app registrations and a deployed HTTPS library service are still missing. Spotify supports playlists, liked songs and saved albums; YouTube's official API supports playlists and likes, not the entire saved YouTube Music album library. See [publisher setup](addons/music/LIBRARY-SYNC.md). No phone pairing is required by the implementation.

@@ -1,5 +1,5 @@
 {
-  "release": "builds-v1.5.1",
+  "release": "builds-v1.6.0",
   "android_source_commit": "8faabb0bb2e00919729c8ec1be856ffc586c15d8",
   "independent_devices": true,
   "physical_device_testing": false,
@@ -19,23 +19,24 @@
     "sha256": "f31ea4a4fceb02320b29282f9dd3469a06dfb100b821b7cbf7760ee4cd5b51fc"
   },
   "tizen": {
-    "version": "1.5.1",
+    "version": "1.6.0",
     "required_version": "5.0",
     "signing": "UNSIGNED; Samsung certificate required before installation",
-    "soundcloud": "Song/album/playlist/artist search and pages; artist link in player; full playlist metadata hydration; codec retries and official widget fallback; optional helper MP3 conversion for older TV decoders",
-    "youtube_music": "Direct public search/official player; configured music helper uses native AVPlay and yt-dlp range proxy; Samsung hardware untested",
-    "spotify": "Public imports matched to YouTube; configured helper plays matches through AVPlay; account login deferred",
+    "soundcloud": "Song/album/artist browsing; official iframe focus blocked; persistent Exit player; Back closes session; fallback queue preserved",
+    "youtube_music": "Public client configuration refreshed/retried after search 403. Persistent origin-level refusal requires music helper. Official account connector supports YouTube playlists/likes, not complete saved YouTube Music albums; not activated",
+    "spotify": "Public imports and matching retained. Configurable account connector supports playlists, liked songs and saved albums; not live-account verified",
     "glass_effects": "optional in Settings; off by default",
     "path": "tizen/releases/BitChord-TV-Lite-unsigned.wgt",
-    "size_bytes": 258658,
-    "sha256": "c384390dfac2085d7f488e62da5cbac95752a25a68fc3fae7a98edc64cfcccb4",
-    "account_login": "deferred by user; no private library sync",
+    "size_bytes": 267362,
+    "sha256": "192cc5bbbc40423a7d9a8dde276d863342159dd94775baf8df53d94b60b41550",
+    "account_login": "Official read-only Spotify/YouTube OAuth connector and UI implemented; NOT ACTIVATED: publisher registrations and HTTPS service configuration are missing",
     "performance": "Preserved lazy artwork, removed per-card canvas and hidden redraws; artist navigation keeps the current song playing",
-    "audio_helper": "Preserved /yt, /spotify and /soundcloud source routes and range proxying; yt-dlp optional dependency, Spotify catalogue requires server credentials. Public Spotify imports need none."
+    "audio_helper": "Preserved /yt, /spotify and /soundcloud source routes and range proxying; yt-dlp optional dependency, Spotify catalogue requires server credentials. Public Spotify imports need none.",
+    "icon": "Android default ic_launcher artwork converted to 117x117 PNG"
   },
   "validation": {
-    "automated_helper_tests": 30,
-    "automated_tv_interface_tests": 18,
+    "automated_helper_tests": 35,
+    "automated_tv_interface_tests": 25,
     "android_release_build": "passed",
     "apk_install_checks": "passed",
     "live_spotify_public_playlist_tracks": 50,
@@ -45,6 +46,8 @@
     "automated_android_source_container_tests": 122,
     "live_soundcloud_artist_tracks": 198,
     "live_soundcloud_artist_albums": 20,
-    "live_soundcloud_artist_playlists": 27
+    "live_soundcloud_artist_playlists": 27,
+    "library_oauth": "Provider-fixture tests passed; no live private account connected",
+    "tv_back_and_official_player_exit": "Automated focus/Back/exit/queue tests passed; physical Samsung retest pending"
   }
 }
