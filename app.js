@@ -65,7 +65,7 @@
   function showTime(position, duration) { var label = time(position) + ' / ' + time(duration); if (el('time').textContent !== label) el('time').textContent = label; el('progress').style.transform = 'scaleX(' + (duration > 0 ? Math.min(1, position / duration) : 0) + ')'; }
   function artURL(track) { var url = track.artworkURL || track.albumArtworkURL || ''; return /^https?:\/\//i.test(url) ? url : ''; }
   function record(track) {
-    return { id: track.id, title: track.title, artist: track.artist, artworkURL: artURL(track), duration: track.duration, source: track.source, uploader: track.uploader, permalinkURL: track.permalinkURL, _base: base };
+    return { id: track.id, title: track.title, artist: track.artist, artworkURL: artURL(track), duration: track.duration, source: track.source, uploader: track.uploader, permalinkURL: track.permalinkURL, artistId: track.artistId, artistURL: track.artistURL, _base: base };
   }
   function same(a, b) { return a.id === b.id && a._base === b._base; }
   function isFavorite(track) { var item = record(track); return favorites.some(function (saved) { return same(saved, item); }); }
@@ -107,6 +107,7 @@
     else { el('player-art').removeAttribute('src'); el('canvas-art').style.backgroundImage = ''; }
     var link = el('source-link'), safeLink = /^https:\/\/(www\.)?soundcloud\.com\//.test(track.permalinkURL || '');
     link.hidden = !safeLink; if (safeLink) { link.href = track.permalinkURL; link.textContent = '☁ SoundCloud · ' + (track.uploader || track.artist || '') + ' ↗'; }
+    el('artist-page').hidden = !(track.source === 'SoundCloud' && track.artistId); el('artist-page').onclick = function () { if (window.SoundCloudBrowse) SoundCloudBrowse.artist(track.artistId); };
     favoriteState(); show('playing', true); status('Resolving stream…'); showTime(0, track.duration);
     function started() { clearTimeout(preparingTimer); if (usingAv) preparingTimer = setTimeout(function () { failed(); }, 20000); remember(track); el('toggle').textContent = 'Ⅱ'; status('Playing'); }
     var candidates = [], candidateIndex = 0, fallbackUsed = false, failing = false, streamTicket = 0;
@@ -234,7 +235,7 @@
       try { localStorage.setItem('bitchord-addon', base); } catch (_) {} show('search', true); status('SoundCloud public search enabled — no login required');
     },
     external: function (controller, title) {
-      clearQueue(); external = controller; el('player-empty').hidden = true; el('player-stage').hidden = true; el('transport').hidden = false;
+      clearQueue(); el('artist-page').hidden = true; external = controller; el('player-empty').hidden = true; el('player-stage').hidden = true; el('transport').hidden = false;
       el('now').textContent = title || 'SoundCloud'; show('playing', true);
     },
     externalTime: showTime,
