@@ -42,7 +42,8 @@ export function musicServer({ audioHelper = false, library = null, request = asy
       const url = new URL(req.url, 'http://localhost');
       if (req.url.length > 2048) throw new Error('Request too long');
       let data;
-      if (url.pathname === '/youtube/search') data = await client.search(url.searchParams.get('q'));
+      if (url.pathname === '/youtube/album' || url.pathname === '/yt/album') data = await client.album(url.searchParams.get('id'));
+      else if (url.pathname === '/youtube/search') data = await client.search(url.searchParams.get('q'));
       else if (url.pathname === '/spotify/public') data = await client.spotify(url.searchParams.get('url'));
       else if (url.pathname === '/health') data = { ok: true, accounts: false };
       else if (audioHandler) { audioHandler(req, res); return; }

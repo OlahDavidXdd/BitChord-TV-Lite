@@ -284,3 +284,21 @@ test('service signing or launch failure stays visible and blocks requests to an 
  const ui=await setup(t,()=>({status:404,body:{}}));ui.window.BITCHORD_CONFIG={onTVService:true};ui.window.tizen={ApplicationControl:function(){},application:{getCurrentApplication:()=>({appInfo:{packageId:'BChordOnTV'}}),launchAppControl:(control,id,done,fail)=>fail({name:'SecurityError',message:'Permission denied'})}};
  ui.window.eval(read('on-tv-boot.js'));assert.match(ui.el('on-tv-status').textContent,/launch failed.*Permission denied/);const before=ui.calls.length;ui.el('query').value='Song';ui.submit('search');assert.equal(ui.calls.length,before);assert.equal(ui.window.BITCHORD_CONFIG.onTVServiceReady,false);
 });
+
+test('SoundCloud fallback shows track cover and removes a finished or failed official panel', async t => {
+ const ui=await setup(t), events={};
+ const Widget=()=>({bind(name,fn){events[name]=fn;},pause(){},play(){},getCurrentSound(cb){cb({title:'Track',artwork_url:'https://cdn.example/cover.jpg',user:{username:'Artist'}});}});
+ Widget.Events={READY:'ready',FINISH:'finish',ERROR:'error'};ui.window.SC={Widget};
+ ui.window.openSoundCloudTrack('https://soundcloud.com/artist/track',null,{title:'Track',artist:'Artist',artworkURL:'https://cdn.example/cover.jpg'});
+ await new Promise(setImmediate);events.ready();
+ assert.equal(ui.el('player-stage').hidden,false);assert.equal(ui.el('player-art').src,'https://cdn.example/cover.jpg');assert.equal(ui.el('player-title').textContent,'Track');
+ events.finish();assert.equal(ui.el('soundcloud-embed').hidden,true);assert.equal(ui.el('soundcloud-embed').children.length,0);assert.equal(ui.el('player-stage').hidden,false);assert.equal(ui.el('toggle').textContent,'▶');
+ ui.el('exit-embedded').click();assert.equal(ui.el('view-playing').hidden,true);
+});
+
+test('selecting a YouTube album opens its tracks without attempting a Spotify song match', async t => {
+ const ui=await setup(t,request=>request.url.includes('/yt/album?')?{body:{tracks:[{id:'abcdefghijk',videoId:'abcdefghijk',title:'Album Song',artist:'Artist'}]}}:{body:{tracks:[{id:'MPREb_test123',browseId:'MPREb_test123',type:'album',title:'An Album',artist:'Artist'}]}});
+ ui.el('music-helper').value='https://music.example';ui.submit('music-helper-form');ui.el('source-youtube').click();ui.el('query').value='An Album';ui.submit('search');await new Promise(setImmediate);
+ ui.el('results').querySelector('button').click();await new Promise(setImmediate);
+ assert.match(ui.calls.at(-1).url,/\/yt\/album\?id=MPREb_test123$/);assert.match(ui.el('results').textContent,/Album Song/);assert.equal(ui.el('search-heading').textContent,'An Album');assert.equal(ui.el('view-playing').hidden,true);
+});

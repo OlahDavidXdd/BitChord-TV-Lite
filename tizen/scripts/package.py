@@ -35,10 +35,10 @@ with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compressleve
         if on_tv and name == 'config.js':
             data = b"window.BITCHORD_CONFIG = { onTVService: true, soundCloudPublicHelperUrl: 'http://127.0.0.1:8790' };\n"
         elif on_tv and name == 'index.html':
-            data = data.replace(b'1.6.0 \xc2\xb7 TV Lite', b'1.7.0 \xc2\xb7 On-TV service test')
+            data = data.replace(b'1.6.0 \xc2\xb7 TV Lite', b'1.7.1 \xc2\xb7 On-TV service test')
         elif on_tv and name == 'config.xml':
             data = data.replace(b'BitChordTV', b'BChordOnTV').replace(b'https://bitchord.in/tv-lite', b'https://bitchord.in/tv-on-device-test').replace(b'<name>BitChord TV Lite</name>', b'<name>BitChord On-TV Test</name>')
-            data = data.replace(b'version="1.6.0"', b'version="1.7.0"').replace(b'background-support="disable"', b'background-support="enable"')
+            data = data.replace(b'version="1.6.0"', b'version="1.7.1"').replace(b'background-support="disable"', b'background-support="enable"')
             data = data.replace(b'</widget>', b'  <feature name="http://tizen.org/feature/web.service"/>\n  <tizen:privilege name="http://developer.samsung.com/privilege/network.public"/>\n  <tizen:service id="BChordOnTV.LocalService"><tizen:content src="service/local-service.js"/><tizen:name>BitChordLocalService</tizen:name><tizen:description>On-TV public music metadata and media proxy</tizen:description></tizen:service>\n</widget>')
             ET.fromstring(data)
         archive.writestr(info, data)

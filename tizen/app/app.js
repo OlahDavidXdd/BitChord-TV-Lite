@@ -126,8 +126,8 @@
         else if (!fallbackUsed && track.source === 'SoundCloud' && track.permalinkURL && window.openSoundCloudTrack) {
           fallbackUsed = true; status('Opening SoundCloud’s official player…');
           var savedQueue = tracks.slice(), savedIndex = current, savedBase = base;
-          function fromFallback(index) { if (!savedQueue[index]) { el('toggle').textContent = '▶'; status('End of playlist'); return; } savedIndex = index; base = savedBase; tracks = savedQueue; play(index); }
-          window.openSoundCloudTrack(track.permalinkURL, { next: function () { fromFallback(savedIndex + 1); }, previous: function () { fromFallback(Math.max(0, savedIndex - 1)); } });
+          function fromFallback(index) { if (!savedQueue[index]) { el('toggle').textContent = '▶'; status('End of playlist'); return false; } savedIndex = index; base = savedBase; tracks = savedQueue; play(index); return true; }
+          window.openSoundCloudTrack(track.permalinkURL, { next: function () { return fromFallback(savedIndex + 1); }, previous: function () { return fromFallback(Math.max(0, savedIndex - 1)); } }, track);
         } else status('No compatible MP3/AAC stream played. This track may be restricted or unsupported on this TV.');
       }, 0);
     }
@@ -257,6 +257,12 @@
     enableSoundCloud: function (helper) {
       base = helper || 'soundcloud:public'; el('addon').value = helper || ''; clearQueue();
       try { localStorage.setItem('bitchord-addon', base); } catch (_) {} show('search', true); status('SoundCloud public search enabled — no login required');
+    },
+    externalMetadata: function (track) {
+      el('player-stage').hidden = false; el('player-title').textContent = track.title || 'SoundCloud'; el('player-artist').textContent = track.artist || '';
+      var art = artURL(track); el('player-art').hidden = !art; el('player-art-fallback').hidden = !!art;
+      if (art) el('player-art').src = art; else el('player-art').removeAttribute('src');
+      el('source-link').hidden = true; el('now').textContent = track.title || 'SoundCloud';
     },
     external: function (controller, title) {
       clearQueue(); el('artist-page').hidden = true; external = controller; el('player-empty').hidden = true; el('player-stage').hidden = true; el('transport').hidden = false;

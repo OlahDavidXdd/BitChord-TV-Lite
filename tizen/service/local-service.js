@@ -98,6 +98,7 @@ function createService(options) {
       else if (route === '/catalog/search') task = soundcloud.browse(query.q, query.type);
       else if (route.indexOf('/artist/') === 0) task = soundcloud.artist(route.slice(8));
       else if (route.indexOf('/playlist/') === 0) task = soundcloud.playlist(route.slice(10));
+      else if (route === '/yt/album') task = music.album(query.id);
       else if (route === '/yt/search' || route === '/youtube/search') task = music.search(query.q);
       else if (route === '/spotify/public') task = music.spotify(query.url);
       else { send(res, 404, { error: 'On-TV endpoint not available' }); return; }

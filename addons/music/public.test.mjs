@@ -52,3 +52,26 @@ test('persistent YouTube rejection stops retrying and explains the helper requir
  const api=music.create({request:async(url,body)=>{if(!body)return '{"INNERTUBE_CLIENT_VERSION":"1.current","INNERTUBE_API_KEY":"public-key"}';posts++;throw Object.assign(Error('Forbidden'),{status:403});}});
  await assert.rejects(api.search('Song'),error=>error.code==='YOUTUBE_DIRECT_FORBIDDEN'&&/Music helper/.test(error.message));assert.equal(posts,2);
 });
+
+test('YouTube albums are collections and open their track list through browse, never Spotify', async () => {
+  const album = { musicTwoRowItemRenderer: { title: { simpleText: 'An Album' }, subtitle: { simpleText: 'Artist' }, navigationEndpoint: { browseEndpoint: { browseId: 'MPREb_test123' } } } };
+  const calls = [];
+  const api = music.create({ request: async (url, body) => { calls.push({url, body}); return url.includes('/browse?') ? yt : { contents: [album] }; } });
+  const result = await api.search('An Album'); assert.equal(result.tracks[0].type, 'album');
+  assert.equal((await api.album(result.tracks[0].browseId)).tracks[0].title, 'Song');
+  assert.match(calls[1].url, /music.youtube.com\/youtubei\/v1\/browse/); assert.equal(calls[1].body.browseId, 'MPREb_test123');
+  await assert.rejects(api.album('https://evil.example'), /Invalid/);
+});
+test('persistent Music 403 falls back once to public YouTube results and parses braces in quoted titles', async () => {
+  const api = music.create({ request: async (url, body) => {
+    if (url.includes('/results?')) return '<script>var ytInitialData = '+JSON.stringify({ contents: [{ videoRenderer: { videoId: 'abcdefghijk', title: { simpleText: 'Song {live}' }, ownerText: { simpleText: 'Artist' } } }] })+';</script>';
+    if (!body) return '"INNERTUBE_CLIENT_VERSION":"current","INNERTUBE_API_KEY":"public"';
+    throw Object.assign(new Error('Forbidden'), {status:403});
+  } });
+  const result = await api.search('Song'); assert.equal(result.tracks[0].title, 'Song {live}'); assert.equal(result.searchSource, 'YouTube public web search');
+});
+test('Spotify accepts nested album track items when public trackList is empty', () => {
+ const entity = {type:'album',name:'Album',trackList:[],tracks:{items:[{track:{name:'Song',artists:[{name:'Artist'}],durationMs:123000}}]}};
+ const html = '<script id="__NEXT_DATA__">'+JSON.stringify({props:{pageProps:{entity}}})+'</script>';
+ const result=music.parseSpotify(html);assert.equal(result.tracks[0].title,'Song');assert.equal(result.tracks[0].duration,123);
+});

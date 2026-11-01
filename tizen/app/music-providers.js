@@ -57,6 +57,13 @@
   function play(index) {
     if (!queue[index]) { notify('End of playlist.'); return; }
     position = index; var track = queue[index], attempt = ++playbackGeneration;
+    if (track.type === 'album' && track.browseId) {
+      notify('Loading YouTube Music album…');
+      call('/yt/album?id=' + encodeURIComponent(track.browseId), function () { return api.album(track.browseId); }).then(function (data) {
+        if (attempt !== playbackGeneration) return;
+        var rows = data.tracks || []; BitChordPlayer.catalog(rows, track.title, function (selected) { queue = rows; play(selected); }); notify(rows.length + ' album tracks');
+      }).catch(function (error) { if (attempt === playbackGeneration) searchError(error); }); return;
+    }
     notify(track.source === 'Spotify' ? 'Matching Spotify track on YouTube Music…' : 'Loading YouTube Music…');
     var matching = track.videoId ? Promise.resolve(track) : search(track.title + ' ' + track.artist).then(function (data) {
       var match = BitChordMusic.matchTrack(track, data.tracks || []);

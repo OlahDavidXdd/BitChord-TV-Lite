@@ -15,7 +15,7 @@
   function parseYouTube(data) {
     var rows = [], seen = Object.create(null);
     walk(data, function (node) {
-      var item = node.musicResponsiveListItemRenderer || node.videoRenderer || node.playlistVideoRenderer;
+      var item = node.musicResponsiveListItemRenderer || node.videoRenderer || node.playlistVideoRenderer || node.playlistPanelVideoRenderer;
       if (!item) return;
       var cols = item.flexColumns || [], first = cols[0] && cols[0].musicResponsiveListItemFlexColumnRenderer;
       var second = cols[1] && cols[1].musicResponsiveListItemFlexColumnRenderer;
@@ -30,6 +30,19 @@
     });
     return rows;
   }
+  function parseAlbums(data) {
+    var rows = [], seen = Object.create(null);
+    walk(data, function (node) {
+      var item = node.musicTwoRowItemRenderer;
+      if (!item) return;
+      var id = ((item.navigationEndpoint || {}).browseEndpoint || {}).browseId;
+      if (!/^MPREb_[A-Za-z0-9_-]+$/.test(id || '') || seen[id]) return;
+      seen[id] = true;
+      var images = (((item.thumbnailRenderer || {}).musicThumbnailRenderer || {}).thumbnail || {}).thumbnails || [];
+      rows.push({ id: id, browseId: id, type: 'album', title: text(item.title), artist: text(item.subtitle), artworkURL: (images[images.length - 1] || {}).url || '', source: 'YouTube Music' });
+    });
+    return rows;
+  }
   function spotifyLink(input) {
     var match = /^https:\/\/open\.spotify\.com\/(?:intl-[a-z]+\/)?(playlist|album|track)\/([A-Za-z0-9]{22})(?:[?#].*)?$/.exec(String(input || '').trim());
     if (!match) throw new Error('Use a public Spotify track, album or playlist link.');
@@ -40,12 +53,14 @@
     if (!match) throw new Error('Spotify did not return public playlist metadata. Private playlists require login.');
     var props = ((JSON.parse(match[1]).props || {}).pageProps || {}), entity = (((props.state || {}).data || {}).entity || props.entity);
     if (!entity) throw new Error('This Spotify link is unavailable or private.');
-    var input = entity.trackList || entity.tracks || (entity.type === 'track' || entity.uri && entity.uri.indexOf('spotify:track:') === 0 ? [entity] : []);
-    var rows = input.map(function (track, index) {
+    var input = entity.trackList && entity.trackList.length ? entity.trackList : entity.tracks || (entity.type === 'track' || entity.uri && entity.uri.indexOf('spotify:track:') === 0 ? [entity] : []);
+    if (!Array.isArray(input)) input = input.items || input.edges || [];
+    var rows = input.map(function (entry, index) {
+      var track = entry.track || entry.node || entry;
       var title = track.title || track.name || '', artist = track.subtitle || (track.artists || []).map(function (a) { return a.name; }).join(', ');
       return { id: track.uri || String(index), title: title, artist: artist, duration: Number(track.duration || track.durationMs || 0) / 1000, artworkURL: (((entity.visualIdentity || {}).image || [])[0] || {}).url || '', source: 'Spotify' };
     }).filter(function (row) { return !!row.title; });
-    if (!rows.length) throw new Error('No public tracks were returned by Spotify.');
+    if (!rows.length) throw new Error('Spotify did not expose tracks for this album or playlist. It may be private, unreleased or unavailable in your region; an empty public response does not mean the album has no songs.');
     return { title: entity.name || entity.title || 'Spotify', tracks: rows, limited: rows.length >= 100 };
   }
   function browserRequest(url, body) {
@@ -92,18 +107,49 @@
       var client = { clientName: 'WEB_REMIX', clientVersion: youtubeConfig.version, hl: 'en', gl: 'US' };
       if (youtubeConfig.visitor) client.visitorData = youtubeConfig.visitor;
       var endpoint = 'https://music.youtube.com/youtubei/v1/search?prettyPrint=false' + (youtubeConfig.key ? '&key=' + encodeURIComponent(youtubeConfig.key) : '');
-      return request(endpoint, { context: { client: client }, query: query, params: 'EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D' }).then(function (data) { return { tracks: parseYouTube(typeof data === 'string' ? JSON.parse(data) : data) }; }).catch(function (error) {
+      return request(endpoint, { context: { client: client }, query: query }).then(function (data) { return { tracks: parseYouTube(typeof data === 'string' ? JSON.parse(data) : data).concat(parseAlbums(typeof data === 'string' ? JSON.parse(data) : data)) }; }).catch(function (error) {
         if (error.status !== 403) throw error;
         if (!retry) throw blocked();
         return refreshYouTube().then(function () { return searchYouTube(query, false); });
       });
     }
+    function webSearch(query) {
+      return request('https://www.youtube.com/results?search_query=' + encodeURIComponent(query + ' music')).then(function (html) {
+        var source = String(html), marker = /(?:var\s+ytInitialData\s*=|window\["ytInitialData"\]\s*=|ytInitialData\s*=)\s*/g, match = marker.exec(source);
+        if (!match) throw blocked();
+        var start = source.indexOf('{', marker.lastIndex), depth = 0, quoted = false, escaped = false, end = start;
+        if (start < 0) throw blocked();
+        for (; end < source.length; end++) {
+          var ch = source.charAt(end);
+          if (quoted) { if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') quoted = false; }
+          else if (ch === '"') quoted = true;
+          else if (ch === '{') depth++;
+          else if (ch === '}' && --depth === 0) break;
+        }
+        var rows = parseYouTube(JSON.parse(source.slice(start, end + 1)));
+        if (!rows.length) throw blocked();
+        return { tracks: rows, searchSource: 'YouTube public web search' };
+      }).catch(function () { throw blocked(); });
+    }
     return {
       search: function (query) {
         query = String(query || '').trim(); if (!query || query.length > 300) return Promise.reject(new Error('Enter a search of 1–300 characters.'));
         return cached('yt:' + query, function () {
-          return searchYouTube(query, true);
+          return searchYouTube(query, true).catch(function (error) { if (error.code !== 'YOUTUBE_DIRECT_FORBIDDEN') throw error; return webSearch(query); });
         });
+      },
+      album: function (browseId) {
+        if (!/^MPREb_[A-Za-z0-9_-]+$/.test(browseId || '')) return Promise.reject(new Error('Invalid YouTube Music album.'));
+        function load() {
+          var client = { clientName: 'WEB_REMIX', clientVersion: youtubeConfig.version, hl: 'en', gl: 'US' };
+          if (youtubeConfig.visitor) client.visitorData = youtubeConfig.visitor;
+          return request('https://music.youtube.com/youtubei/v1/browse?prettyPrint=false' + (youtubeConfig.key ? '&key=' + encodeURIComponent(youtubeConfig.key) : ''), { context: { client: client }, browseId: browseId }).then(function (value) {
+            var rows = parseYouTube(typeof value === 'string' ? JSON.parse(value) : value);
+            if (!rows.length) throw new Error('YouTube did not expose this album’s tracks. It may be unavailable in your region.');
+            return { tracks: rows };
+          });
+        }
+        return cached('album:' + browseId, function () { return load().catch(function (error) { if (error.status !== 403) throw error; return refreshYouTube().then(load); }); });
       },
       spotify: function (input) {
         var link; try { link = spotifyLink(input); } catch (e) { return Promise.reject(e); }
@@ -111,5 +157,5 @@
       }
     };
   }
-  return { create: create, parseYouTube: parseYouTube, parseSpotify: parseSpotify, spotifyLink: spotifyLink, matchTrack: matchTrack };
+  return { create: create, parseYouTube: parseYouTube, parseAlbums: parseAlbums, parseSpotify: parseSpotify, spotifyLink: spotifyLink, matchTrack: matchTrack };
 }));

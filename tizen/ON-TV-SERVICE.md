@@ -42,3 +42,11 @@ The service loads, parses the CA bundle and serves test searches using the real 
 **Private account sync is not implemented in this local-service test.** The ordinary build's HTTPS OAuth connector has not been ported to the legacy service. Spotify/Google application registrations are also missing. Public playlist import and local favorites are different from private account-library sync. The full saved YouTube Music album library is not exposed by the official YouTube API.
 
 This is a feasibility/test build for running the public music paths on the TV itself, not a claim that every requested feature or every recording works. The first hardware check is the on-TV service status.
+
+## 1.7.1 alpha.2 changes
+
+SoundCloud's official fallback now keeps track art/title/artist in the normal Now Playing view, with the official widget visible in a compact panel. The finished/failed widget is removed so its end card does not replace the song artwork. Back and Exit remain available. Manual links fetch their metadata from the official widget.
+
+YouTube Music search now includes recognized album cards. Selecting one requests its track list through the YouTube Music browse endpoint instead of trying to match the album name as a song. Persistent anonymous Music search 403 errors try the public YouTube results page once; persistent rejection still reports failure. This fallback was tested against representative responses, not live YouTube access: the execution environment rejects that host. The official player and hardware limitations above still apply.
+
+Spotify public parsing also accepts nested track-list response shapes. A live public Spotify album returned 18 tracks during verification. This is not Spotify login or direct Spotify streaming. Account sync remains unfinished, as described above.
