@@ -110,16 +110,21 @@
     if (key === 427) play(current + 1); if (key === 428) play(Math.max(0, current - 1));
     if (typing || key < 37 || key > 40) return;
     event.preventDefault();
-    var items = Array.prototype.slice.call(document.querySelectorAll('input,button,a')), origin = active && active.getBoundingClientRect();
+    var items = Array.prototype.slice.call(document.querySelectorAll('input,button,a,summary')), origin = active && active.getBoundingClientRect();
     if (!origin) { items[0].focus(); return; }
     var ox = origin.left + origin.width / 2, oy = origin.top + origin.height / 2, best, score = Infinity;
     items.forEach(function (item) {
-      if (item === active) return; var r = item.getBoundingClientRect(), dx = r.left + r.width / 2 - ox, dy = r.top + r.height / 2 - oy;
+      if (item === active || item.disabled || !item.getClientRects().length) return; var r = item.getBoundingClientRect(), dx = r.left + r.width / 2 - ox, dy = r.top + r.height / 2 - oy;
       var horizontal = key === 37 || key === 39, along = horizontal ? dx : dy, across = horizontal ? dy : dx;
       if ((key === 37 || key === 38) ? along >= -1 : along <= 1) return;
       var distance = Math.abs(along) + Math.abs(across) * 3; if (distance < score) { score = distance; best = item; }
     });
     if (best) { best.focus(); best.scrollIntoView({ block: 'nearest' }); }
   });
+  window.BitChordPlayer = { clearAddon: function () {
+    ++generation; ++searchGeneration; stop(); base = ''; tracks = []; current = -1;
+    el('addon').value = ''; el('results').textContent = ''; el('now').textContent = 'Nothing playing';
+    try { localStorage.removeItem('bitchord-addon'); } catch (_) {} status('Addon removed');
+  } };
   el(base ? 'query' : 'addon').focus();
 })();
