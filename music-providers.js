@@ -39,7 +39,7 @@
       xhr.ontimeout = function () { reject(new Error('Music helper timed out.')); }; xhr.send();
     });
   }
-  function search(query) { return call('/youtube/search?q=' + encodeURIComponent(query), function () { return api.search(query); }); }
+  function search(query) { helper = read('bitchord-music-helper') || ''; return call('/yt/search?q=' + encodeURIComponent(query), function () { return api.search(query); }).then(function (data) { (data.tracks || []).forEach(function (track) { if (/^[A-Za-z0-9_-]{11}$/.test(track.id || '')) track.videoId = track.id; }); return data; }); }
   function spotify(link) { return call('/spotify/public?url=' + encodeURIComponent(link), function () { return api.spotify(link); }); }
   function playerAPI() {
     if (window.YT && YT.Player) return Promise.resolve(YT);
@@ -62,6 +62,12 @@
     });
     matching.then(function (resolved) {
       if (attempt !== playbackGeneration) return;
+      if (helper) {
+        var row = {}; Object.keys(resolved).forEach(function (key) { row[key] = resolved[key]; }); row.id = resolved.videoId || resolved.id;
+        BitChordPlayer.nativeTrack(row, helper + '/yt', { next: function () { play(position + 1); }, previous: function () { play(Math.max(0, position - 1)); } });
+        notify(track.source === 'Spotify' ? 'Playing Spotify selection through matched YouTube audio' : 'Playing native TV audio');
+        return;
+      }
       return playerAPI().then(function (YT) {
         if (attempt !== playbackGeneration) return;
         var host = el('youtube-embed'), player, active = true, timer;
@@ -99,6 +105,7 @@
       notify(rows.length + ' tracks' + (data.limited ? ' · Spotify exposes up to 100 tracks publicly; account login is needed for complete libraries.' : ''));
     }).catch(function (error) { if (request === searchGeneration) notify(error.message); });
   };
+  document.addEventListener('bitchord-playback-stop', function () { ++playbackGeneration; });
   document.addEventListener('visibilitychange', function () { if (document.hidden) ++playbackGeneration; });
   choose(/^(addon|youtube|spotify)$/.test(source) ? source : 'addon', false);
 }());
