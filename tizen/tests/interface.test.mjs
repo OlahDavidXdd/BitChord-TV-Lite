@@ -19,7 +19,7 @@ async function setup(t, routes = () => ({ status: 404, body: { error: 'Not found
     setListener(listener) { this.listener = listener; }, prepareAsync(done) { done(); }, play() { this.state = 'PLAYING'; }, pause() { this.state = 'PAUSED'; },
     getDuration() { return this.duration; }, getCurrentTime() { return this.position; }, seekTo(ms) { this.position = ms; } };
   window.webapis = { avplay: av }; window.BITCHORD_CONFIG = {};
-  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js', 'music-public.js', 'music-providers.js', 'soundcloud-browse.js', 'library-sync.js']) window.eval(read(name));
+  for (const name of ['soundcloud-bootstrap.js', 'soundcloud-public.js', 'app.js', 'soundcloud-free.js', 'tv-services.js', 'on-tv-player.js', 'music-public.js', 'music-providers.js', 'soundcloud-browse.js', 'library-sync.js']) window.eval(read(name));
   return { window, document: window.document, calls, av, el: id => window.document.getElementById(id),
     submit(id) { window.document.getElementById(id).dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); } };
 }
@@ -263,4 +263,24 @@ test('official SoundCloud fallback preserves the original queue for Next',async 
 
 test('YouTube and Spotify searches do not also show SoundCloud as the selected catalogue',async t=>{
  const ui=await setup(t);ui.el('music-youtube').click();assert.equal(ui.el('sc-browse-modes').hidden,true);ui.el('music-spotify').click();assert.equal(ui.el('sc-browse-modes').hidden,true);ui.el('sc-free-enable').click();assert.equal(ui.el('sc-browse-modes').hidden,false);
+});
+
+test('on-TV build uses a loopback official player and accepts messages only from its own frame',async t=>{
+ const ui=await setup(t,()=>({body:{tracks:[{id:'aaaaaaaaaaa',title:'First',artist:'Artist'},{id:'bbbbbbbbbbb',title:'Second',artist:'Artist'}]}}));
+ ui.window.BITCHORD_CONFIG={onTVService:true,onTVServiceOrigin:'http://127.0.0.1:8790'};ui.el('music-helper').value='http://127.0.0.1:8790';ui.submit('music-helper-form');ui.el('music-youtube').click();ui.el('query').value='Artist';ui.submit('search');await new Promise(setImmediate);ui.el('results').querySelector('button').click();await new Promise(setImmediate);
+ const frame=ui.el('youtube-embed').querySelector('iframe');assert.match(frame.src,/^http:\/\/127.0.0.1:8790\/youtube-player.html\?video=aaaaaaaaaaa$/);assert.equal(ui.el('exit-embedded').hidden,false);
+ ui.window.dispatchEvent(new ui.window.MessageEvent('message',{origin:'https://evil.example',source:frame.contentWindow,data:{bitChordPlayer:true,type:'state',data:0}}));await new Promise(setImmediate);assert.equal(ui.el('youtube-embed').querySelector('iframe'),frame);
+ ui.window.dispatchEvent(new ui.window.MessageEvent('message',{origin:'http://127.0.0.1:8790',source:frame.contentWindow,data:{bitChordPlayer:true,type:'state',data:0}}));await new Promise(setImmediate);assert.match(ui.el('youtube-embed').querySelector('iframe').src,/bbbbbbbbbbb$/);
+ ui.el('exit-embedded').click();assert.equal(ui.el('youtube-embed').hidden,true);
+});
+
+test('on-TV bootstrap launches its packaged service and waits for confirmed readiness',async t=>{
+ let health=0,launched;const ui=await setup(t,()=>++health===1?{status:404,body:{}}:{body:{onTV:true,runtime:'v4.4.3'}});
+ ui.window.BITCHORD_CONFIG={onTVService:true};ui.window.tizen={ApplicationControl:function(operation){this.operation=operation;},application:{getCurrentApplication:()=>({appInfo:{packageId:'BChordOnTV'}}),launchAppControl:(control,id,done)=>{launched=id;done();}}};
+ const timer=ui.window.setTimeout.bind(ui.window);ui.window.setTimeout=(fn)=>timer(fn,0);ui.window.eval(read('on-tv-boot.js'));await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(launched,'BChordOnTV.LocalService');assert.equal(ui.window.BITCHORD_CONFIG.onTVServiceReady,true);assert.match(ui.el('on-tv-status').textContent,/On-TV service running.*v4.4.3/);assert.equal(ui.window.localStorage.getItem('bitchord-music-helper'),'http://127.0.0.1:8790');
+});
+test('service signing or launch failure stays visible and blocks requests to an absent helper',async t=>{
+ const ui=await setup(t,()=>({status:404,body:{}}));ui.window.BITCHORD_CONFIG={onTVService:true};ui.window.tizen={ApplicationControl:function(){},application:{getCurrentApplication:()=>({appInfo:{packageId:'BChordOnTV'}}),launchAppControl:(control,id,done,fail)=>fail({name:'SecurityError',message:'Permission denied'})}};
+ ui.window.eval(read('on-tv-boot.js'));assert.match(ui.el('on-tv-status').textContent,/launch failed.*Permission denied/);const before=ui.calls.length;ui.el('query').value='Song';ui.submit('search');assert.equal(ui.calls.length,before);assert.equal(ui.window.BITCHORD_CONFIG.onTVServiceReady,false);
 });

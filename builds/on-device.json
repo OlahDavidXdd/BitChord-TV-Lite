@@ -1,0 +1,25 @@
+{
+  "release": "tv-ondevice-v1.7.0-alpha.1",
+  "status": "EXPERIMENTAL: physical TV service launch and provider playback are unverified",
+  "target_model": "UE43RU7172UXXH",
+  "target_firmware": "T-MSLDEUC-1500.9",
+  "required_version": "5.0",
+  "application_id": "BChordOnTV.Lite",
+  "service_id": "BChordOnTV.LocalService",
+  "loopback": "http://127.0.0.1:8790",
+  "external_helper_required": false,
+  "private_account_sync": "Not implemented in this legacy local-service test; provider registrations and local authorization adaptation remain necessary",
+  "youtube": "Public metadata through local service; official visible player in loopback HTTP wrapper; not live-playback verified",
+  "soundcloud": "Public metadata/stream resolution/HLS proxy through local service; no FFmpeg or codec conversion",
+  "spotify": "Public link imports matched to YouTube; no Spotify account sync or direct Spotify audio",
+  "signing": "UNSIGNED; Samsung certificate/service permissions required",
+  "validation": {
+    "tv_interface_and_service_tests": 34,
+    "existing_external_helper_tests": 35,
+    "real_node_4_4_3": "Service loads, CA parses, health and injected search route return HTTP 200",
+    "physical_samsung_test": false
+  },
+  "path": "tizen/releases/BitChord-TV-OnDevice-unsigned.wgt",
+  "size_bytes": 399019,
+  "sha256": "e3b73b9d8af3591e3f93e7481599d70a4eaf9bb858afb7d2f9ee646c1dbaa5e8"
+}

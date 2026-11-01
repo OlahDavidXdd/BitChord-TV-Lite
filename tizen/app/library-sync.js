@@ -3,10 +3,11 @@
   function el(id) { return document.getElementById(id); }
   function read(key) { try { return localStorage.getItem(key) || ''; } catch (_) { return ''; } }
   function write(key, value) { try { if (value) localStorage.setItem(key, value); else localStorage.removeItem(key); } catch (_) {} }
-  var origin = read('bitchord-library-service'), current = 'spotify', kind = 'playlists', generation = 0, polling = {};
+  var onTV = !!(window.BITCHORD_CONFIG || {}).onTVService;
+  var origin = onTV ? window.BITCHORD_CONFIG.onTVServiceOrigin : read('bitchord-library-service'), current = 'spotify', kind = 'playlists', generation = 0, polling = {};
   el('library-service').value = origin;
   function status(message) { el('library-account-status').textContent = message; BitChordPlayer.notify(message); }
-  function token(provider) { return read('bitchord-library-token-' + provider); }
+  function token(provider) { if (onTV) return ''; return read('bitchord-library-token-' + provider); }
   function api(path, provider, method) {
     if (!origin) return Promise.reject(new Error('Save the publisher’s configured HTTPS library service in Settings first.'));
     return new Promise(function (resolve, reject) {
@@ -35,7 +36,7 @@
   }
   function connect(provider) {
     api('/library/config').then(function (config) {
-      if (!config[provider]) throw new Error('The publisher has not configured ' + (provider === 'spotify' ? 'Spotify' : 'Google') + ' OAuth credentials on this library service.');
+      if (!config[provider]) throw new Error(config.error || 'The publisher has not configured ' + (provider === 'spotify' ? 'Spotify' : 'Google') + ' OAuth credentials on this library service.');
       var forget = token(provider) ? api('/library/session', provider, 'DELETE').catch(function () {}) : Promise.resolve();
       return forget.then(function () { write('bitchord-library-token-' + provider, ''); return api('/library/connect/' + provider, null, 'POST'); });
     }).then(function (data) {

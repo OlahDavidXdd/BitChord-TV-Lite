@@ -65,6 +65,9 @@
     });
     matching.then(function (resolved) {
       if (attempt !== playbackGeneration) return;
+      if ((window.BITCHORD_CONFIG || {}).onTVService && window.OnTVPlayer) {
+        OnTVPlayer.play(resolved, track, { next: function () { play(position + 1); }, previous: function () { play(Math.max(0, position - 1)); } }); return;
+      }
       if (helper) {
         var row = {}; Object.keys(resolved).forEach(function (key) { row[key] = resolved[key]; }); row.id = resolved.videoId || resolved.id;
         BitChordPlayer.nativeTrack(row, helper + '/yt', { next: function () { play(position + 1); }, previous: function () { play(Math.max(0, position - 1)); } });
