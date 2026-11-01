@@ -4,6 +4,8 @@ Modified builds of [BitChord](https://github.com/kushagrasinghx/BitChord), with 
 
 ## Downloads
 
+**Installation fix:** the latest Android APK removes an accidental `testOnly` flag that caused normal installers to reject previous downloads. Delete the old downloaded file and download the replacement below.
+
 - **[Android APK — ARM64](android/releases/BitChord-Android-arm64-debug.apk?raw=true)**: full native BitChord, including the original YouTube Music and Spotify integrations. Development-signed, Android 8.0 or newer. The file uses Git LFS; use this download link for the actual APK.
 - **[Samsung Tizen 5 widget](tizen/releases/BitChord-TV-Lite-unsigned.wgt?raw=true)**: approximately 251 KiB. Requires your Samsung TV certificate signing before installation.
 - **[Live TV interface preview](https://olahdavidxdd.github.io/BitChord-TV-Lite/)**.

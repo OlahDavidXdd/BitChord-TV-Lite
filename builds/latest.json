@@ -1,6 +1,6 @@
 {
-  "release": "builds-v1.2.1",
-  "android_source_commit": "b1a1f32",
+  "release": "builds-v1.2.2",
+  "android_source_commit": "d34161a97420307d838271e040d94e00d4fd0fd7",
   "android": {
     "version": "1.9 (36)",
     "architecture": "arm64-v8a",
@@ -9,10 +9,12 @@
     "youtube_music": "original native integration retained, not live-account tested",
     "spotify": "original playlists/liked-song matching retained, not live-account tested",
     "soundcloud": "login service not configured",
-    "binary_change": "Same verified native APK as v1.2, renamed to clarify that it includes all original integrations",
+    "binary_change": "Rebuilt with android.injected.testOnly=false; normal Android package installers no longer reject it as test-only",
     "path": "android/releases/BitChord-Android-arm64-debug.apk",
-    "size_bytes": 117407902,
-    "sha256": "101a9e3736b3ba5ac636fdd42cd038b9fae4c297bc06ef1e55ebbfd764976992"
+    "size_bytes": 117415568,
+    "sha256": "695213e7a4e03d4b4a5010bb873d9cfe19e24229a22b5c83eb031eb2a9151f90",
+    "test_only": false,
+    "standalone_apk": true
   },
   "tizen": {
     "version": "1.2.1",

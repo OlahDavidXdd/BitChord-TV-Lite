@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 8c068c6..cb7e962 100644
+index 8c068c6..0ef6e54 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -62,7 +62,10 @@ android {
@@ -23,6 +23,15 @@ index 8c068c6..cb7e962 100644
              resValue("string", "app_name", "BitChord Dev")
          }
          create("prod") {
+@@ -194,6 +197,8 @@ android {
+         targetCompatibility = JavaVersion.VERSION_17
+     }
+     packaging {
++        // Compress native libraries in the downloadable APK; Android extracts them at install.
++        jniLibs.useLegacyPackaging = true
+         resources {
+             // SMBJ's BouncyCastle and jspecify both ship this descriptor.
+             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
 index 6a9371e..c33f073 100644
 --- a/app/src/main/AndroidManifest.xml
@@ -245,6 +254,19 @@ index b036253..78e8ed2 100644
          <exclude domain="sharedpref" path="bitchord_auth.xml" />
          <exclude domain="sharedpref" path="bitchord_auth_plain.xml" />
          <exclude domain="sharedpref" path="bitchord_sources.xml" />
+diff --git a/gradle.properties b/gradle.properties
+index cf96469..887a083 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -26,4 +26,6 @@ kotlin.code.style=official
+ android.nonTransitiveRClass=true
+ # AGP is pinned to 8.2.1 by Android Studio Hedgehog (2023.1), which predates
+ # SDK 36/37. Compiling against the newer platform works; this silences the warning.
+-android.suppressUnsupportedCompileSdk=36,37
+\ No newline at end of file
++android.suppressUnsupportedCompileSdk=36,37
++# Allow APKs built for a selected ABI to install through the normal package installer.
++android.injected.testOnly=false
 diff --git a/tv/build.gradle.kts b/tv/build.gradle.kts
 index 7ebc31e..0c2034f 100644
 --- a/tv/build.gradle.kts

@@ -48,3 +48,7 @@ The patch was checked for clean application to the pinned revision. Ten addon/OA
 - APK size: 117,407,902 bytes. Native libraries are compressed in the download and extracted at installation, so installed size is larger.
 - Full source is on the `android-soundcloud` branch, including the APK packaging change. The APK is stored with Git LFS; use the raw download link to obtain the binary rather than a pointer file.
 - **The distributed build has no SoundCloud login service configured.** It explicitly disables sign-in until a publisher builds it with a deployed service origin. Ordinary upstream BitChord features remain in the full native app; this does not make unconfigured SoundCloud login work.
+
+## Installation fix (builds-v1.2.2)
+
+The earlier APK accidentally had `android:testOnly=true` from the selected-ABI build flags. A valid signature does not make such an APK installable by tapping it in a normal Android installer. The replacement explicitly sets `android.injected.testOnly=false` and checks the final APK for test-only, required-split and feature-split flags, ZIP integrity, signature and alignment. Physical-device installation still requires confirmation. Download the latest APK rather than a previous cached file.

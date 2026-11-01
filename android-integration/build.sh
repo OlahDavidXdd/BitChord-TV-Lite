@@ -17,5 +17,13 @@ elif ! git -C "$checkout" apply --reverse --check "$integration_dir/soundcloud-l
   exit 1
 fi
 cd "$checkout"
-./gradlew :app:assembleProdDebug -Pbitchord.bundleWear=false
-printf 'APKs: %s/app/build/outputs/apk/prod/debug\n' "$checkout"
+./gradlew :app:assembleProdDebug -Pbitchord.bundleWear=false -Pandroid.injected.testOnly=false
+python3 - "$integration_dir/verify-apk.py" "$ANDROID_HOME" <<'PYVERIFY'
+from pathlib import Path
+import subprocess
+import sys
+apks = [p for p in Path('app/build').rglob('*.apk') if '/apk/prod/debug/' in p.as_posix()]
+if not apks:
+    raise SystemExit('No prod/debug APK was produced')
+subprocess.run([sys.executable, sys.argv[1], sys.argv[2], *map(str, apks)], check=True)
+PYVERIFY
