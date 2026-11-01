@@ -50,3 +50,7 @@ SoundCloud's official fallback now keeps track art/title/artist in the normal No
 YouTube Music search now includes recognized album cards. Selecting one requests its track list through the YouTube Music browse endpoint instead of trying to match the album name as a song. Persistent anonymous Music search 403 errors try the public YouTube results page once; persistent rejection still reports failure. This fallback was tested against representative responses, not live YouTube access: the execution environment rejects that host. The official player and hardware limitations above still apply.
 
 Spotify public parsing also accepts nested track-list response shapes. A live public Spotify album returned 18 tracks during verification. This is not Spotify login or direct Spotify streaming. Account sync remains unfinished, as described above.
+
+## 1.7.2 alpha.3 changes
+
+Opening an embedded player no longer clears search or album results. Back, the close button and Exit player restore the previous list, selected card, query and scroll position, including after advancing the playback queue. Native playback keeps its existing continue-playing behavior when closing Now Playing. Source changes still clear the old catalogue intentionally.

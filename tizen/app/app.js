@@ -6,7 +6,7 @@
   function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
   var shell = el('tv-shell'), view = 'home', lastView = 'home', audio = el('audio');
   var tracks = [], current = -1, generation = 0, searchGeneration = 0, toastTimer, controlsTimer;
-  var nativeNavigation = null;
+  var nativeNavigation = null, playerReturnFocus = null, playerReturnScroll = [];
   var external = null, publicClient = null, playbackFailed = null, preparingTimer, pageQuery = '', pageRows = [], pageOffset = null;
   var av = window.webapis && window.webapis.avplay, usingAv = false, avPaused = false;
   var base = '', history = read('bitchord-tv-history', []), favorites = read('bitchord-tv-favorites', []), libraryRecent = false;
@@ -21,7 +21,11 @@
   fit(); window.addEventListener('resize', fit);
   function status(text) { el('status').textContent = text; el('status').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(function () { el('status').hidden = true; }, 5500); }
   function show(next, focusContent) {
-    if (next === 'playing' && view !== 'playing') lastView = view;
+    if (next === 'playing' && view !== 'playing') {
+      lastView = view; playerReturnFocus = document.activeElement;
+      var origin = el('view-' + view);
+      playerReturnScroll = [origin].concat(Array.prototype.slice.call(origin.querySelectorAll('*'))).filter(function (node) { return node === origin || node.scrollTop || node.scrollLeft; }).map(function (node) { return { node: node, top: node.scrollTop, left: node.scrollLeft }; });
+    }
     view = next;
     Array.prototype.forEach.call(document.querySelectorAll('.view'), function (page) { page.hidden = page.id !== 'view-' + next; });
     Array.prototype.forEach.call(document.querySelectorAll('#tabs button'), function (button) {
@@ -40,7 +44,14 @@
   Array.prototype.forEach.call(document.querySelectorAll('[data-go]'), function (button) { button.onclick = function () { show(button.getAttribute('data-go'), true); }; });
   el('account').onclick = function () { show('settings', true); el('music-youtube').focus(); };
   el('open-player').onclick = function () { show('playing', true); };
-  function closePlayer() { if (external) { ++generation; stop(); } show(lastView === 'playing' ? 'search' : lastView, false); var tab = document.querySelector('#tabs [data-view="' + view + '"]'); if (tab) tab.focus(); }
+  function closePlayer() {
+    if (external) { ++generation; stop(); }
+    show(lastView === 'playing' ? 'search' : lastView, false);
+    var page = el('view-' + view), target = playerReturnFocus;
+    if (!target || !page.contains(target) || target.disabled || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) target = page.querySelector('.track-card') || document.querySelector('#tabs [data-view="' + view + '"]');
+    if (target) target.focus();
+    playerReturnScroll.forEach(function (saved) { if (page.contains(saved.node) || page === saved.node) { saved.node.scrollTop = saved.top; saved.node.scrollLeft = saved.left; } });
+  }
   el('close-player').onclick = closePlayer;
   el('exit-embedded').onclick = closePlayer;
   function controls() { el('view-playing').classList.add('controls-on'); clearTimeout(controlsTimer); controlsTimer = setTimeout(function () { if (document.activeElement && !el('transport').contains(document.activeElement)) el('view-playing').classList.remove('controls-on'); }, 6000); }
@@ -159,7 +170,7 @@
     else play(current < 0 ? 0 : current); controls();
   }
   function seek(seconds) { if (external) { external.seek(seconds); controls(); return; } try { if (usingAv) av.seekTo(Math.max(0, Math.min(av.getDuration(), av.getCurrentTime() + seconds * 1000))); else if (isFinite(audio.duration)) audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + seconds)); } catch (_) {} controls(); }
-  function clearQueue() { ++generation; ++searchGeneration; stop(); tracks = []; current = -1; el('results').textContent = ''; el('now').textContent = 'Nothing playing'; el('player-empty').hidden = false; el('player-stage').hidden = true; el('transport').hidden = true; renderSaved(); }
+  function clearQueue(preserveCatalog) { ++generation; ++searchGeneration; stop(); tracks = []; current = -1; if (!preserveCatalog) el('results').textContent = ''; el('now').textContent = 'Nothing playing'; el('player-empty').hidden = false; el('player-stage').hidden = true; el('transport').hidden = true; renderSaved(); }
   el('settings').onsubmit = function (event) {
     event.preventDefault(); var value = el('addon').value.trim().replace(/\/manifest\.json\/?$/, '').replace(/\/+$/, '');
     if (!/^https?:\/\/[^\s]+$/i.test(value)) { status('Enter an http:// or https:// addon URL'); return; }
@@ -265,7 +276,7 @@
       el('source-link').hidden = true; el('now').textContent = track.title || 'SoundCloud';
     },
     external: function (controller, title) {
-      clearQueue(); el('artist-page').hidden = true; external = controller; el('player-empty').hidden = true; el('player-stage').hidden = true; el('transport').hidden = false;
+      clearQueue(true); el('artist-page').hidden = true; external = controller; el('player-empty').hidden = true; el('player-stage').hidden = true; el('transport').hidden = false;
       el('now').textContent = title || 'SoundCloud'; show('playing', true);
     },
     externalTime: showTime,

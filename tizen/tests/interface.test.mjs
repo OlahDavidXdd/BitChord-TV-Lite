@@ -302,3 +302,21 @@ test('selecting a YouTube album opens its tracks without attempting a Spotify so
  ui.el('results').querySelector('button').click();await new Promise(setImmediate);
  assert.match(ui.calls.at(-1).url,/\/yt\/album\?id=MPREb_test123$/);assert.match(ui.el('results').textContent,/Album Song/);assert.equal(ui.el('search-heading').textContent,'An Album');assert.equal(ui.el('view-playing').hidden,true);
 });
+
+test('Exit from official SoundCloud restores the selected result, query and scroll positions', async t => {
+ const rows=[{id:'1',title:'First',artist:'Artist'},{id:'2',title:'Second',artist:'Artist'}];
+ const ui=await setup(t); const Widget=()=>({bind(){},pause(){}});Widget.Events={};ui.window.SC={Widget};
+ ui.window.BitChordPlayer.catalog(rows,'Search results');ui.el('query').value='my search';
+ const second=ui.el('results').querySelectorAll('button')[1];second.focus();ui.el('view-search').scrollTop=123;ui.el('results').scrollLeft=210;
+ ui.window.openSoundCloudTrack('https://soundcloud.com/artist/second',null,rows[1]);await new Promise(setImmediate);
+ assert.equal(ui.el('results').querySelectorAll('button').length,2);
+ ui.el('exit-embedded').click();
+ assert.equal(ui.el('view-search').hidden,false);assert.equal(ui.el('query').value,'my search');assert.equal(ui.el('search-heading').textContent,'Search results');assert.equal(ui.document.activeElement,second);assert.equal(ui.el('view-search').scrollTop,123);assert.equal(ui.el('results').scrollLeft,210);
+});
+test('Back from the on-TV YouTube player preserves results across Next and duplicate Samsung Back events', async t => {
+ const ui=await setup(t,()=>({body:{tracks:[{id:'aaaaaaaaaaa',title:'First',artist:'Artist'},{id:'bbbbbbbbbbb',title:'Second',artist:'Artist'}]}}));
+ ui.window.BITCHORD_CONFIG={onTVService:true,onTVServiceOrigin:'http://127.0.0.1:8790'};ui.el('music-helper').value='http://127.0.0.1:8790';ui.submit('music-helper-form');ui.el('music-youtube').click();ui.el('query').value='Artist';ui.submit('search');await new Promise(setImmediate);
+ const first=ui.el('results').querySelector('button');first.focus();first.click();await new Promise(setImmediate);ui.el('next').click();await new Promise(setImmediate);
+ ui.document.dispatchEvent(new ui.window.KeyboardEvent('keydown',{keyCode:10009,bubbles:true}));const hw=new ui.window.Event('tizenhwkey',{cancelable:true});hw.keyName='back';ui.document.dispatchEvent(hw);
+ assert.equal(ui.el('view-search').hidden,false);assert.equal(ui.el('results').querySelectorAll('button').length,2);assert.equal(ui.document.activeElement,first);assert.equal(ui.el('query').value,'Artist');assert.equal(ui.el('youtube-embed').hidden,true);
+});

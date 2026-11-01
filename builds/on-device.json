@@ -1,5 +1,5 @@
 {
-  "release": "tv-ondevice-v1.7.1-alpha.2",
+  "release": "tv-ondevice-v1.7.2-alpha.3",
   "status": "EXPERIMENTAL: physical TV service launch and provider playback are unverified",
   "target_model": "UE43RU7172UXXH",
   "target_firmware": "T-MSLDEUC-1500.9",
@@ -18,15 +18,14 @@
     "existing_external_helper_tests": 35,
     "real_node_4_4_3": "Service loads, CA parses, health and injected search route return HTTP 200",
     "physical_samsung_test": false,
-    "combined_interface_service_and_helper_tests": 54
+    "combined_interface_service_and_helper_tests": 56
   },
   "path": "tizen/releases/BitChord-TV-OnDevice-unsigned.wgt",
-  "size_bytes": 400987,
-  "sha256": "e7f63d5901caef252dcd91d42b03cf75ef9422a6689318beeeefd531bceee3ef",
+  "size_bytes": 401229,
+  "sha256": "e3c5ac0e02b3f52ae9c62be0056ef566264cc5ed7af3bd86374ab9aed6991edc",
   "changes": [
-    "SoundCloud artwork remains primary; ended and failed widget panels removed",
-    "YouTube Music album cards load browse track lists",
-    "Bounded public YouTube web search fallback after persistent Music 403",
-    "Spotify nested public track-list parsing"
+    "Opening embedded playback preserves search and album results",
+    "Back and Exit restore selected result, query and scroll position",
+    "Queue changes preserve the original return location"
   ]
 }
