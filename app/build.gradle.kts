@@ -197,6 +197,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging {
+        // Compress native libraries in the downloadable APK; Android extracts them at install.
+        jniLibs.useLegacyPackaging = true
         resources {
             // SMBJ's BouncyCastle and jspecify both ship this descriptor.
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
