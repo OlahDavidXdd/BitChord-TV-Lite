@@ -1,0 +1,23 @@
+// Live probe: runs the same shared SoundCloud client the TV uses against the real service.
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+const { create } = createRequire(import.meta.url)('../../shared/soundcloud-public.cjs');
+const boot = JSON.parse(readFileSync(new URL('../../shared/soundcloud-bootstrap.json', import.meta.url)));
+const get = async url => { const r = await fetch(url, { signal: AbortSignal.timeout(20000) }); if (!r.ok) throw Object.assign(new Error('HTTP ' + r.status), { status: r.status }); return r.text(); };
+const step = async (name, fn) => { try { console.log('OK  ', name, '->', JSON.stringify(await fn()).slice(0, 300)); } catch (e) { console.log('FAIL', name, '->', e.message, e.status || ''); } };
+const raw = await fetch('https://api-v2.soundcloud.com/search/tracks?q=daft%20punk&limit=2&client_id=' + boot.clientId, { headers: { Origin: 'file://' } });
+console.log('bootstrap client_id status', raw.status, '| allow-origin:', raw.headers.get('access-control-allow-origin'));
+const html = await fetch('https://soundcloud.com', { headers: { Origin: 'file://' } });
+console.log('soundcloud.com html status', html.status, '| allow-origin:', html.headers.get('access-control-allow-origin'));
+const asset = await fetch(boot.assets[0], { headers: { Origin: 'file://' } });
+console.log('bootstrap asset[0] status', asset.status, '| allow-origin:', asset.headers.get('access-control-allow-origin'));
+const api = create({ ...boot, request: get });
+let first;
+await step('search', async () => { const r = await api.search('daft punk'); first = r.tracks[0]; return { count: r.tracks.length, first: first && first.title }; });
+await step('collections', async () => { const r = await api.collections('daft punk'); globalThis.album = r.albums[0]; return { count: r.albums.length, first: r.albums[0] && r.albums[0].title }; });
+await step('playlist', async () => { const r = await api.playlist(globalThis.album.id); return { title: r.title, tracks: r.tracks.length }; });
+let stream;
+await step('stream', async () => { stream = await api.stream(first.id); return { url: stream.url.slice(0, 80), manifest: stream.manifest, format: stream.format, alternates: (stream.alternates || []).map(a => a.manifest) }; });
+if (stream) await step('fetch audio bytes', async () => { const r = await fetch(stream.url, { headers: { Range: 'bytes=0-2047' } }); const b = Buffer.from(await r.arrayBuffer()); return { status: r.status, type: r.headers.get('content-type'), head: b.subarray(0, 12).toString('latin1').replace(/[^ -~]/g, '.') }; });
+const fresh = create({ assets: boot.assets, request: get });
+await step('client_id discovery (no bootstrap id)', async () => (await fresh.search('daft punk')).tracks.length);

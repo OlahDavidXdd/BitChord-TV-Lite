@@ -1,0 +1,24 @@
+name: Live probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [tv-fixes]
+    paths: ['.github/probe/**', '.github/workflows/probe.yml']
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: SoundCloud (the TV's own client)
+        run: node .github/probe/probe.mjs
+      - name: YouTube via yt-dlp (helper path)
+        continue-on-error: true
+        run: |
+          pip install -q -U yt-dlp
+          yt-dlp --flat-playlist --dump-single-json --no-warnings -- "ytsearch3:daft punk one more time" | python3 -c "import json,sys; d=json.load(sys.stdin); print('search ok', [(e['id'], e.get('duration')) for e in d['entries']])"
+          URL=$(yt-dlp -f 'bestaudio[ext=m4a]/bestaudio' -g --no-playlist --no-warnings -- "https://www.youtube.com/watch?v=FGBhQbmPwH8" | head -1)
+          echo "stream url host: $(echo "$URL" | cut -d/ -f3)"
+          curl -s -o /tmp/a.bin -w "audio bytes http %{http_code} type %{content_type}\n" -H "Range: bytes=0-2047" "$URL"
