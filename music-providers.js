@@ -7,6 +7,8 @@
   var searchGeneration = 0, queue = [], position = 0, playbackGeneration = 0, ytPromise;
   var originalSearch = el('search').onsubmit, originalSoundCloud = el('sc-free-enable').onclick;
   el('music-helper').value = helper;
+  function searchError(error) { el('music-problem').textContent = error.message; el('music-error').hidden = false; el('music-helper-open').hidden = error.code !== 'YOUTUBE_DIRECT_FORBIDDEN'; notify(error.message); }
+  el('music-helper-open').onclick = function () { BitChordPlayer.show('settings', false); var details = el('music-helper').closest('details'); if (details) details.open = true; el('music-helper').focus(); };
   function notify(message) { BitChordPlayer.notify(message); }
   function choose(next, open) {
     source = next; ++searchGeneration; BitChordPlayer.cancelSearch(); save('bitchord-music-source', source);
@@ -93,9 +95,10 @@
       });
     }).catch(function (error) { if (attempt === playbackGeneration) notify(error.message); });
   }
+  window.BitChordMusicPlayer = { playRows: function (rows, index) { queue = rows; play(index); } };
   el('search').onsubmit = function (event) {
     if (source === 'addon') { ++searchGeneration; originalSearch(event); return; }
-    event.preventDefault(); var query = el('query').value.trim(), request = ++searchGeneration;
+    event.preventDefault(); el('music-error').hidden = true; var query = el('query').value.trim(), request = ++searchGeneration;
     if (!query) return; notify('Searching ' + (source === 'spotify' ? 'Spotify playlist…' : 'YouTube Music…'));
     var task = source === 'spotify' ? spotify(query) : search(query);
     task.then(function (data) {
@@ -103,7 +106,7 @@
       var rows = data.tracks || [];
       BitChordPlayer.catalog(rows, data.title || 'YouTube Music', function (index) { queue = rows.slice(); play(index); });
       notify(rows.length + ' tracks' + (data.limited ? ' · Spotify exposes up to 100 tracks publicly; account login is needed for complete libraries.' : ''));
-    }).catch(function (error) { if (request === searchGeneration) notify(error.message); });
+    }).catch(function (error) { if (request === searchGeneration) searchError(error); });
   };
   document.addEventListener('bitchord-playback-stop', function () { ++playbackGeneration; });
   document.addEventListener('visibilitychange', function () { if (document.hidden) ++playbackGeneration; });

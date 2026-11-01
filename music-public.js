@@ -51,8 +51,8 @@
   function browserRequest(url, body) {
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest(); xhr.open(body ? 'POST' : 'GET', url); xhr.timeout = 20000;
-      if (body) xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.onload = function () { if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText); else reject(new Error('Music service request failed (' + xhr.status + ').')); };
+      if (body) { xhr.setRequestHeader('Content-Type', 'application/json'); var client = (body.context || {}).client; if (client && client.clientName === 'WEB_REMIX') { xhr.setRequestHeader('X-YouTube-Client-Name', '67'); xhr.setRequestHeader('X-YouTube-Client-Version', client.clientVersion); if (client.visitorData) xhr.setRequestHeader('X-Goog-Visitor-Id', client.visitorData); } }
+      xhr.onload = function () { if (xhr.status >= 200 && xhr.status < 300) { resolve(xhr.responseText); return; } var failure = new Error('Music service request failed (' + xhr.status + ').'); failure.status = xhr.status; reject(failure); };
       xhr.onerror = function () { reject(new Error('The TV blocked this service request. Configure the optional music helper in Settings.')); };
       xhr.ontimeout = function () { reject(new Error('The music service timed out. Try again.')); };
       xhr.send(body ? JSON.stringify(body) : null);
@@ -70,18 +70,39 @@
     }).filter(function (entry) { return entry.valid && entry.score >= 0.65; }).sort(function (a, b) { return b.score - a.score; }).map(function (entry) { return entry.row; })[0] || null;
   }
   function create(options) {
-    options = options || {}; var request = options.request || browserRequest, cache = Object.create(null), pending = Object.create(null);
+    options = options || {}; var youtubeConfig = { version: '1.20250101.01.00' }, refreshing; var request = options.request || browserRequest, cache = Object.create(null), pending = Object.create(null);
     function cached(key, load) {
       if (cache[key] && Date.now() - cache[key].at < 120000) return Promise.resolve(cache[key].data);
       if (pending[key]) return pending[key];
       pending[key] = load().then(function (data) { if (Object.keys(cache).length > 40) cache = Object.create(null); cache[key] = { at: Date.now(), data: data }; delete pending[key]; return data; }, function (error) { delete pending[key]; throw error; });
       return pending[key];
     }
+    function blocked() { var failure = new Error('YouTube refused direct TV search (403). Set up the Music helper in Settings with yt-dlp installed; no phone is required.'); failure.status = 403; failure.code = 'YOUTUBE_DIRECT_FORBIDDEN'; return failure; }
+    function refreshYouTube() {
+      if (refreshing) return refreshing;
+      refreshing = request('https://music.youtube.com/').then(function (html) {
+        function value(key) { var source = String(html), marker = '"' + key + '"', at = source.indexOf(marker); if (at < 0) return ''; var match = /^\s*:\s*"([^"\r\n]+)"/.exec(source.slice(at + marker.length)); return match ? JSON.parse('"' + match[1] + '"') : ''; }
+        var version = value('INNERTUBE_CLIENT_VERSION'), key = value('INNERTUBE_API_KEY');
+        if (!version || !key) throw blocked();
+        youtubeConfig = { version: version, key: key, visitor: value('VISITOR_DATA') }; return youtubeConfig;
+      }).then(function (config) { refreshing = null; return config; }, function () { refreshing = null; throw blocked(); });
+      return refreshing;
+    }
+    function searchYouTube(query, retry) {
+      var client = { clientName: 'WEB_REMIX', clientVersion: youtubeConfig.version, hl: 'en', gl: 'US' };
+      if (youtubeConfig.visitor) client.visitorData = youtubeConfig.visitor;
+      var endpoint = 'https://music.youtube.com/youtubei/v1/search?prettyPrint=false' + (youtubeConfig.key ? '&key=' + encodeURIComponent(youtubeConfig.key) : '');
+      return request(endpoint, { context: { client: client }, query: query, params: 'EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D' }).then(function (data) { return { tracks: parseYouTube(typeof data === 'string' ? JSON.parse(data) : data) }; }).catch(function (error) {
+        if (error.status !== 403) throw error;
+        if (!retry) throw blocked();
+        return refreshYouTube().then(function () { return searchYouTube(query, false); });
+      });
+    }
     return {
       search: function (query) {
         query = String(query || '').trim(); if (!query || query.length > 300) return Promise.reject(new Error('Enter a search of 1–300 characters.'));
         return cached('yt:' + query, function () {
-          return request('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', { context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20261028.01.00', hl: 'en', gl: 'US' } }, query: query, params: 'EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D' }).then(function (data) { return { tracks: parseYouTube(typeof data === 'string' ? JSON.parse(data) : data) }; });
+          return searchYouTube(query, true);
         });
       },
       spotify: function (input) {

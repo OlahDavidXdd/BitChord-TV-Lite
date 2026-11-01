@@ -40,7 +40,9 @@
   Array.prototype.forEach.call(document.querySelectorAll('[data-go]'), function (button) { button.onclick = function () { show(button.getAttribute('data-go'), true); }; });
   el('account').onclick = function () { show('settings', true); el('music-youtube').focus(); };
   el('open-player').onclick = function () { show('playing', true); };
-  el('close-player').onclick = function () { show(lastView, false); var tab = document.querySelector('#tabs [data-view="' + lastView + '"]'); if (tab) tab.focus(); };
+  function closePlayer() { if (external) { ++generation; stop(); } show(lastView === 'playing' ? 'search' : lastView, false); var tab = document.querySelector('#tabs [data-view="' + view + '"]'); if (tab) tab.focus(); }
+  el('close-player').onclick = closePlayer;
+  el('exit-embedded').onclick = closePlayer;
   function controls() { el('view-playing').classList.add('controls-on'); clearTimeout(controlsTimer); controlsTimer = setTimeout(function () { if (document.activeElement && !el('transport').contains(document.activeElement)) el('view-playing').classList.remove('controls-on'); }, 6000); }
   function get(path, done) {
     if (base === 'soundcloud:public') {
@@ -122,7 +124,10 @@
         if (request !== generation) return; failing = false;
         if (candidateIndex < candidates.length) { status('Trying another TV-compatible stream…'); start(null, candidates[candidateIndex++], true); }
         else if (!fallbackUsed && track.source === 'SoundCloud' && track.permalinkURL && window.openSoundCloudTrack) {
-          fallbackUsed = true; status('Opening SoundCloud’s official player…'); window.openSoundCloudTrack(track.permalinkURL);
+          fallbackUsed = true; status('Opening SoundCloud’s official player…');
+          var savedQueue = tracks.slice(), savedIndex = current, savedBase = base;
+          function fromFallback(index) { if (!savedQueue[index]) { el('toggle').textContent = '▶'; status('End of playlist'); return; } savedIndex = index; base = savedBase; tracks = savedQueue; play(index); }
+          window.openSoundCloudTrack(track.permalinkURL, { next: function () { fromFallback(savedIndex + 1); }, previous: function () { fromFallback(Math.max(0, savedIndex - 1)); } });
         } else status('No compatible MP3/AAC stream played. This track may be restricted or unsupported on this TV.');
       }, 0);
     }
@@ -200,14 +205,25 @@
   el('player-art').onerror = function () { this.hidden = true; el('player-art-fallback').hidden = false; };
   document.addEventListener('visibilitychange', function () { if (document.hidden) { ++generation; stop(); } });
   try { ['MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind', 'MediaTrackNext', 'MediaTrackPrevious'].forEach(function (key) { try { tizen.tvinputdevice.registerKey(key); } catch (_) {} }); } catch (_) {}
+  var lastBackAt = 0, lastBackType = '';
+  function back(event) {
+    event.preventDefault(); if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    if (event.repeat || (Date.now() - lastBackAt < 250 && event.type !== lastBackType)) return;
+    lastBackAt = Date.now(); lastBackType = event.type;
+    var active = document.activeElement;
+    if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) {
+      active.blur(); var selected = document.querySelector('#tabs [data-view="' + view + '"]'); if (selected) selected.focus(); return;
+    }
+    if (view === 'playing') { closePlayer(); return; }
+    if (active && !el('tabs').contains(active)) { var tab = document.querySelector('#tabs [data-view="' + view + '"]'); if (tab) tab.focus(); }
+    else if (view !== 'home') { show('home', false); document.querySelector('#tabs [data-view="home"]').focus(); }
+    else try { tizen.application.getCurrentApplication().exit(); } catch (_) {}
+  }
+  document.addEventListener('keydown', function (event) { if (event.keyCode === 10009 || event.keyCode === 27 || event.key === 'Escape' || event.key === 'BrowserBack') back(event); }, true);
+  document.addEventListener('tizenhwkey', function (event) { if (event.keyName === 'back') back(event); });
   document.addEventListener('keydown', function (event) {
     var key = event.keyCode, active = document.activeElement, typing = active && active.tagName === 'INPUT';
-    if (key === 10009 || key === 27) {
-      event.preventDefault(); if (typing) active.blur(); else if (view === 'playing') el('close-player').click();
-      else if (active && !el('tabs').contains(active)) { var tab = document.querySelector('#tabs [data-view="' + view + '"]'); if (tab) tab.focus(); }
-      else if (view !== 'home') { show('home', false); document.querySelector('#tabs [data-view="home"]').focus(); }
-      else { try { tizen.application.getCurrentApplication().exit(); } catch (_) {} } return;
-    }
+
     if (key === 10252 || key === 415 || key === 19) { event.preventDefault(); if (key === 415 && ((usingAv && !avPaused) || (!usingAv && !audio.paused))) return; if (key === 19 && ((usingAv && avPaused) || (!usingAv && audio.paused))) return; toggle(); }
     if (key === 413) { ++generation; stop(); status('Stopped'); } if (key === 417) seek(10); if (key === 412) seek(-10); if (key === 427) el('next').click(); if (key === 428) el('previous').click();
     if (typing || key < 37 || key > 40) return;
@@ -225,6 +241,8 @@
   });
   window.BitChordPlayer = {
     notify: status,
+    refreshCatalog: function (rows, heading, selected) { if (view === 'search') { renderCards(el('results'), rows, selected); el('search-heading').textContent = heading; } },
+    collectionCards: function (container, rows, selected) { renderCards(el(container), rows, selected); },
     nativeTrack: function (track, endpoint, navigation) {
       base = endpoint; try { localStorage.setItem('bitchord-addon', base); } catch (_) {}
       tracks = [track]; play(0); nativeNavigation = navigation;
