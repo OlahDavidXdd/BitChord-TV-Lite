@@ -214,7 +214,9 @@ object SourceResolver {
         // what makes "my own FLAC of this, if I have one, else stream it"
         // expressible.
         // A row picked by hand is not up for substitution — see [MIX_PARAM].
-        val picked = pickedMix != null && pinned is AddonSource
+        val pickedAddon = pickedMix != null && pinned is AddonSource
+        val pinnedSoundCloud = pinned?.kind == SourceKind.SOUNDCLOUD
+        val picked = pickedAddon || pinnedSoundCloud
         if (!picked && request is StreamRequest.Lossless && pinned?.kind?.canServeLossless != true) {
             for (source in rankedAbove(configId, active)) {
                 if (!source.kind.canServeLossless) continue
@@ -234,10 +236,10 @@ object SourceResolver {
 
         if (pinned != null) {
             attempt(pinned) {
-                if (picked) {
+                if (pickedAddon) {
                     (pinned as AddonSource).stream(trackId, request, stereoOnly = pickedMix == MIX_STEREO)
                 } else {
-                    pinned.stream(trackId, request)
+                    pinned.stream(trackId, if (pinnedSoundCloud && request is StreamRequest.Lossless) StreamRequest.Capped(320) else request)
                 }
             }
                 ?.let { return it.copy(sourceConfigId = pinned.configId) }

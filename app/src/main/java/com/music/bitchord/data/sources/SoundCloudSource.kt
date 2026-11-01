@@ -27,25 +27,7 @@ class SoundCloudSource(override val config: SourceConfig) : MusicSource, SourceR
         if (query.isBlank()) return@withContext emptyList()
         val key = query.trim()
         searches[key]?.takeIf { android.os.SystemClock.elapsedRealtime() - it.at < 300_000 }?.let { return@withContext it.rows.take(limit) }
-        StreamResolver.initializeExtractor()
-        val extractor = ServiceList.SoundCloud.getSearchExtractor(key, listOf("tracks"), "")
-        extractor.fetchPage()
-        val items = extractor.initialPage.items.toMutableList()
-        var next = extractor.initialPage.nextPage
-        var pages = 1
-        while (items.size < limit.coerceAtMost(50) && org.schabi.newpipe.extractor.Page.isValid(next) && pages < 5) {
-            val page = runCatching { extractor.getPage(next) }.getOrNull() ?: break
-            items.addAll(page.items)
-            next = page.nextPage
-            pages++
-        }
-        val rows = items.filterIsInstance<StreamInfoItem>()
-            .filter { it.contentAvailability != ContentAvailability.PAID && it.contentAvailability != ContentAvailability.MEMBERSHIP }
-            .map { item ->
-                Song(videoId = SourceRegistry.trackKey(configId, item.url), title = item.name,
-                    artist = item.uploaderName, thumbnailUrl = item.thumbnails.maxByOrNull { it.width }?.url,
-                    durationText = item.duration.takeIf { it > 0 }?.let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }, sourceQuality = "HIGH")
-            }
+        val rows = SoundCloudCatalog.searchTracks(key, limit.coerceAtMost(200), configId)
         if (searches.size >= 100) searches.clear()
         searches[key] = Cached(android.os.SystemClock.elapsedRealtime(), rows)
         rows.take(limit)
@@ -55,18 +37,6 @@ class SoundCloudSource(override val config: SourceConfig) : MusicSource, SourceR
         if (request is StreamRequest.Lossless) return@withContext null
         val uri = Uri.parse(trackId)
         require(uri.scheme == "https" && uri.host in setOf("soundcloud.com", "www.soundcloud.com") && uri.userInfo == null) { "Invalid SoundCloud track URL" }
-        StreamResolver.initializeExtractor()
-        val info = StreamInfo.getInfo(ServiceList.SoundCloud, trackId)
-        require(info.contentAvailability != ContentAvailability.PAID && info.contentAvailability != ContentAvailability.MEMBERSHIP) { "This track is restricted on SoundCloud" }
-        val candidates = info.audioStreams.filter {
-            it.isUrl && it.content.startsWith("https://") &&
-                it.format?.suffix?.lowercase(Locale.ROOT) in setOf("mp3", "m4a", "mp4", "aac")
-        }
-        val cap = (request as? StreamRequest.Capped)?.maxKbps
-        val selected = (if (cap != null) candidates.filter { it.averageBitrate <= cap } else candidates)
-            .maxByOrNull { it.averageBitrate } ?: candidates.minByOrNull { it.averageBitrate } ?: return@withContext null
-        val url = selected.content
-        if (selected.deliveryMethod == DeliveryMethod.HLS) StreamContainer.declare(url, "hls")
-        SourceStream(url = url, format = StreamFormat(codec = selected.format?.suffix ?: "mp3", kbps = selected.averageBitrate.takeIf { it > 0 }), durationSec = info.duration.takeIf { it > 0 }?.toInt())
+        SoundCloudCatalog.stream(trackId)
     }
 }

@@ -2444,7 +2444,10 @@ private fun BitChordApp(
         val current = player.song ?: return@LaunchedEffect
         if (current.albumId != null && current.artistId != null) return@LaunchedEffect
         linksLoading = true
-        links = YtMusicRepository.trackLinks(current.videoId).getOrNull()
+        val source = SourceRegistry.parseTrackKey(current.videoId)
+        links = if (source != null) {
+            if (SourceRegistry.config(source.first)?.kind == com.music.bitchord.data.sources.SourceKind.SOUNDCLOUD) runCatching { com.music.bitchord.data.sources.SoundCloudCatalog.trackInfo(source.second) }.getOrNull() else null
+        } else YtMusicRepository.trackLinks(current.videoId).getOrNull()
         linksLoading = false
     }
     val playerSong = player.song?.let { current ->
@@ -4237,7 +4240,10 @@ private fun BitChordApp(
             LaunchedEffect(heldSong.videoId, needsLinks) {
                 if (!needsLinks) return@LaunchedEffect
                 menuLinksLoading = true
-                menuLinks = YtMusicRepository.trackLinks(heldSong.videoId).getOrNull()
+                val source = SourceRegistry.parseTrackKey(heldSong.videoId)
+                menuLinks = if (source != null) {
+                    if (SourceRegistry.config(source.first)?.kind == com.music.bitchord.data.sources.SourceKind.SOUNDCLOUD) runCatching { com.music.bitchord.data.sources.SoundCloudCatalog.trackInfo(source.second) }.getOrNull() else null
+                } else YtMusicRepository.trackLinks(heldSong.videoId).getOrNull()
                 menuLinksLoading = false
             }
             val song = menuLinks?.takeIf { needsLinks && it.videoId == heldSong.videoId }?.let { extra ->

@@ -263,6 +263,14 @@ fun SearchScreen(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding()),
         ) {
+            if (searchingAddons && query.isNotBlank()) {
+                item {
+                    Row(Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { onBrowseClick(BrowseItem("soundcloud:search:albums:" + query.trim(), "SoundCloud Albums & Playlists", "SoundCloud", null, BrowseType.ALBUM)) }) { Text("SoundCloud Albums") }
+                        OutlinedButton(onClick = { onBrowseClick(BrowseItem("soundcloud:search:artists:" + query.trim(), "SoundCloud Artists", "SoundCloud", null, BrowseType.ARTIST)) }) { Text("SoundCloud Artists") }
+                    }
+                }
+            }
             when {
                 searchingLibrary || searchingAddons -> librarySearchResults(
                     query = query.trim(),

@@ -2575,7 +2575,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         /** Per-addon budget for the Addons search tab; a slow addon is left out, not waited on. */
         private const val ADDON_SEARCH_TIMEOUT_MS = 12_000L
-        private const val ADDON_SEARCH_LIMIT = 20
+        private const val ADDON_SEARCH_LIMIT = 200
 
         /** How many Spotify tracks are looked up on YouTube Music at once. */
         private const val SPOTIFY_MATCH_PARALLELISM = 6
@@ -2715,6 +2715,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         ) return
         if (browseId.startsWith(SPOTIFY_PAGE_PREFIX)) {
             openSpotifyPage(browseId, title, subtitle, thumbnailUrl)
+            return
+        }
+        if (browseId.startsWith(com.music.bitchord.data.sources.SoundCloudCatalog.PREFIX)) {
+            _detailStack.value += DetailPage(browseId, title, subtitle, thumbnailUrl, UiState.Loading, if (browseId.startsWith("soundcloud:artist:")) BrowseType.ARTIST else type)
+            viewModelScope.launch {
+                val result = runCatching { com.music.bitchord.data.sources.SoundCloudCatalog.page(browseId) }
+                _detailStack.value = _detailStack.value.map { current ->
+                    if (current.browseId != browseId) current else result.fold(
+                        onSuccess = { page -> current.copy(title = page.title, thumbnailUrl = page.artwork ?: thumbnailUrl, songs = UiState.Success(page.songs), sections = page.sections) },
+                        onFailure = { current.copy(songs = UiState.Error(it.message ?: "SoundCloud page failed")) },
+                    )
+                }
+            }
             return
         }
         val resolved = browseTypeOf(browseId, type)
@@ -2889,6 +2902,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * then arrive in order and swap the rows in place, so the page is usable
      * before the last song has been found.
      */
+    private val spotifyMatchCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Song>>()
+
     private fun openSpotifyPage(browseId: String, title: String, subtitle: String, thumbnailUrl: String?) {
         _detailStack.value += DetailPage(
             browseId = browseId,
@@ -2914,39 +2929,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     if (it.browseId == browseId) it.copy(thumbnailUrl = cover) else it
                 }
             }
-            val tracks = runCatching {
+            val gate = Semaphore(3)
+            val queued = mutableSetOf<String>()
+            val resolved = java.util.concurrent.ConcurrentHashMap<String, Song>()
+            val jobs = mutableListOf<Job>()
+            runCatching {
                 SpotifyLibrary.tracks(playlistId) { soFar ->
-                    setSongs(UiState.Success(soFar.map { it.asPendingSong() }))
-                }
-            }.getOrElse {
-                setSongs(UiState.Error(it.message ?: text(R.string.failed)))
-                return@launch
-            }
-            if (tracks.isEmpty()) {
-                setSongs(UiState.Error(text(R.string.spotify_empty_tracks)))
-                return@launch
-            }
-            val gate = Semaphore(SPOTIFY_MATCH_PARALLELISM)
-            coroutineScope {
-                tracks.forEachIndexed { index, track ->
-                    launch {
-                        gate.withPermit {
-                            if (!open()) return@withPermit
-                            val match = runCatching { SpotifyImporter.matchTrack(track) }.getOrNull()
-                            val found = match?.copy(thumbnailUrl = match.thumbnailUrl ?: track.imageUrl)
-                                ?: track.asPendingSong().let {
-                                    it.copy(videoId = SPOTIFY_MISSING_PREFIX + track.id)
+                    val pending = soFar.map { track ->
+                        val cached = spotifyMatchCache[track.id]?.takeIf { System.currentTimeMillis() - it.first < 600_000 }?.second
+                        resolved[track.id] ?: cached ?: track.asPendingSong()
+                    }
+                    _detailStack.update { pages -> pages.map { page ->
+                        if (page.browseId == browseId) page.copy(songs = UiState.Success(soFar.map { track -> resolved[track.id] ?: spotifyMatchCache[track.id]?.takeIf { System.currentTimeMillis() - it.first < 600_000 }?.second ?: track.asPendingSong() })) else page
+                    } }
+                    soFar.forEachIndexed { index, track ->
+                        if (queued.add(track.id) && pending[index].videoId.startsWith(SPOTIFY_PENDING_PREFIX)) {
+                            jobs += viewModelScope.launch {
+                                gate.withPermit {
+                                    if (!open()) return@withPermit
+                                    val match = withTimeoutOrNull(15_000) { runCatching { SpotifyImporter.matchTrack(track) }.getOrNull() }
+                                    val found = match?.copy(thumbnailUrl = match.thumbnailUrl ?: track.imageUrl)
+                                        ?: track.asPendingSong().copy(videoId = SPOTIFY_MISSING_PREFIX + track.id)
+                                    resolved[track.id] = found
+                                    if (match != null) {
+                                        if (spotifyMatchCache.size > 1000) spotifyMatchCache.clear()
+                                        spotifyMatchCache[track.id] = System.currentTimeMillis() to found
+                                    }
+                                    _detailStack.update { pages -> pages.map { page ->
+                                        val list = (page.songs as? UiState.Success<List<Song>>)?.data
+                                        if (page.browseId == browseId && list != null) page.copy(songs = UiState.Success(list.map { song -> if (song.videoId == SPOTIFY_PENDING_PREFIX + track.id) found else song })) else page
+                                    } }
                                 }
-                            _detailStack.value = _detailStack.value.map { page ->
-                                val list = (page.songs as? UiState.Success<List<Song>>)?.data
-                                if (page.browseId == browseId && list != null && index < list.size) {
-                                    page.copy(songs = UiState.Success(list.toMutableList().also { it[index] = found }))
-                                } else page
                             }
                         }
                     }
                 }
+            }.onFailure { error ->
+                if (_detailStack.value.firstOrNull { it.browseId == browseId }?.songs !is UiState.Success) setSongs(UiState.Error(error.message ?: text(R.string.failed)))
             }
+            jobs.forEach { it.join() }
         }
     }
 

@@ -1427,6 +1427,7 @@ class PlaybackService : MediaLibraryService() {
                         "No enabled source could serve ${dataSpec.uri.getQueryParameter("n")}"
                     },
                 )
+                mediaIdIn(dataSpec.uri)?.let { StreamContainer.served(it, stream.url) }
                 val configId = dataSpec.uri.getQueryParameter("s")
                 val sourceName = if (directYouTube) {
                     "YouTube"
@@ -4008,6 +4009,9 @@ class PlaybackService : MediaLibraryService() {
         ) {
             return
         }
+        SourceRegistry.parseTrackKey(mediaId)?.let { (config, track) ->
+            if (SourceRegistry.config(config)?.kind == SourceKind.SOUNDCLOUD) com.music.bitchord.data.sources.SoundCloudCatalog.retry(track)
+        }
         // An addon/JioSaavn stream gets one chance. If it fails after selection,
         // retrying the ordinary item only lets the same deterministic lookup win
         // again. Rebuild it as an explicit YouTube request instead. This also
@@ -4425,6 +4429,12 @@ class PlaybackService : MediaLibraryService() {
     private fun skipPastUnplayable(mediaId: String, reason: String) {
         val exoPlayer = player ?: return
         if (exoPlayer.currentMediaItem?.mediaId != mediaId) return
+        val source = SourceRegistry.parseTrackKey(mediaId)?.first?.let(SourceRegistry::config)
+        if (source?.kind == SourceKind.SOUNDCLOUD) {
+            exoPlayer.pause()
+            Toast.makeText(applicationContext, "SoundCloud could not play this track after retrying. It may be restricted, removed or unavailable. Choose another track or retry.", Toast.LENGTH_LONG).show()
+            return
+        }
         if (!exoPlayer.hasNextMediaItem()) {
             TrackLog.w("BitChord", "$reason — and nothing after it in the queue", about = mediaId)
             return

@@ -69,11 +69,17 @@ object SpotifyLibrary {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/122.0.0.0 Safari/537.36"
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private data class CachedTracks(val at: Long, val tracks: List<SpotifyTrack>)
+    private val trackCache = java.util.concurrent.ConcurrentHashMap<String, CachedTracks>()
+    @Volatile private var cachedPlaylists: Triple<String, Long, List<SpotifyPlaylist>>? = null
     private val mediaType = "application/json; charset=utf-8".toMediaType()
 
     /** Every playlist in the library, however many pages it takes. */
     suspend fun playlists(): List<SpotifyPlaylist> = withContext(Dispatchers.IO) {
         val headers = authHeaders()
+        val owner = headers.getValue("Authorization")
+        cachedPlaylists?.takeIf { it.first == owner && System.currentTimeMillis() - it.second < 120_000 }?.let { return@withContext it.third }
+
         val collected = mutableListOf<SpotifyPlaylist>()
         var offset = 0
         while (true) {
@@ -84,7 +90,9 @@ object SpotifyLibrary {
         }
         // Liked Songs is not a playlist to Spotify's library query, so it is
         // always offered first rather than depending on it turning up there.
-        listOf(SpotifyPlaylist(id = LIKED_ID, name = "Liked Songs", owner = null, imageUrl = LIKED_COVER)) + collected
+        val result = listOf(SpotifyPlaylist(id = LIKED_ID, name = "Liked Songs", owner = null, imageUrl = LIKED_COVER)) + collected
+        cachedPlaylists = Triple(owner, System.currentTimeMillis(), result)
+        result
     }
 
     /**
@@ -97,6 +105,9 @@ object SpotifyLibrary {
         onPage: (List<SpotifyTrack>) -> Unit = {},
     ): List<SpotifyTrack> = withContext(Dispatchers.IO) {
         val headers = authHeaders()
+        val cacheKey = headers.getValue("Authorization") + ":" + playlistId
+        trackCache[cacheKey]?.takeIf { System.currentTimeMillis() - it.at < 120_000 }?.let { onPage(it.tracks); return@withContext it.tracks }
+
         val collected = mutableListOf<SpotifyTrack>()
         var offset = 0
         while (true) {
@@ -110,6 +121,8 @@ object SpotifyLibrary {
             onPage(collected.toList())
             if (raw == 0 || offset >= total) break
         }
+        if (trackCache.size >= 8) trackCache.clear()
+        trackCache[cacheKey] = CachedTracks(System.currentTimeMillis(), collected.toList())
         collected
     }
 
