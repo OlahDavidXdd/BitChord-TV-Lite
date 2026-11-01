@@ -200,3 +200,20 @@ test('SoundCloud search offers albums and artist pages instead of only song rows
  ui.el('query').value='Artist';ui.el('sc-mode-artists').click();await new Promise(setImmediate);assert.equal(ui.el('search-heading').textContent,'SoundCloud Artists');assert.match(ui.el('results').textContent,/Artist/);
  ui.el('sc-mode-albums').click();await new Promise(setImmediate);assert.equal(ui.el('search-heading').textContent,'SoundCloud Albums & Playlists');assert.match(ui.el('results').textContent,/Album/);
 });
+
+test('configured music helper uses native TV audio and keeps next and completion in the queue',async t=>{
+ const ui=await setup(t,request=>request.url.includes('/yt/search?')?{body:{tracks:[{id:'aaaaaaaaaaa',title:'First',artist:'Artist'},{id:'bbbbbbbbbbb',title:'Second',artist:'Artist'}]}}:{body:{url:'https://helper.example/yt/audio/'+request.url.split('/').pop(),manifest:'none',format:'aac'}});
+ ui.el('music-helper').value='https://helper.example';ui.submit('music-helper-form');ui.el('music-youtube').click();ui.el('query').value='Artist';ui.submit('search');await new Promise(setImmediate);
+ ui.el('results').querySelector('button').click();await new Promise(setImmediate);
+ assert.equal(ui.av.state,'PLAYING');assert.match(ui.av.url,/aaaaaaaaaaa$/);assert.equal(ui.el('youtube-embed').hidden,true);
+ ui.el('next').click();await new Promise(setImmediate);assert.match(ui.av.url,/bbbbbbbbbbb$/);
+ ui.el('previous').click();await new Promise(setImmediate);assert.match(ui.av.url,/aaaaaaaaaaa$/);
+ ui.av.listener.onstreamcompleted();await new Promise(setImmediate);assert.match(ui.av.url,/bbbbbbbbbbb$/);
+});
+test('Stop cancels a pending YouTube player request before it can start music',async t=>{
+ const ui=await setup(t,()=>({body:{contents:[{videoRenderer:{videoId:'aaaaaaaaaaa',title:{simpleText:'Song'},ownerText:{simpleText:'Artist'}}}]}}));
+ let started=0;ui.window.YT={Player:function(){started++;this.destroy=()=>{};}};
+ ui.el('music-youtube').click();ui.el('query').value='Song';ui.submit('search');await new Promise(setImmediate);
+ ui.el('results').querySelector('button').click();ui.document.dispatchEvent(new ui.window.KeyboardEvent('keydown',{keyCode:413,bubbles:true}));await new Promise(setImmediate);
+ assert.equal(started,0);assert.equal(ui.el('youtube-embed').hidden,true);
+});

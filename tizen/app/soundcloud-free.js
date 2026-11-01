@@ -24,14 +24,17 @@
   glass(read('bitchord-tv-glass') === 'on');
   el('glass-toggle').onclick = function () { glass(el('glass-toggle').getAttribute('aria-pressed') !== 'true'); };
 
-  var widgetPromise;
+  var widgetPromise, pendingGeneration = 0;
+  document.addEventListener('bitchord-playback-stop', function () { ++pendingGeneration; });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) ++pendingGeneration; });
   function widgetAPI() {
     if (window.SC && SC.Widget) return Promise.resolve(SC);
     if (widgetPromise) return widgetPromise;
     widgetPromise = new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { widgetPromise = null; reject(new Error('SoundCloud player timed out. Check the TV connection.')); }, 20000);
       var script = document.createElement('script'); script.src = 'https://w.soundcloud.com/player/api.js';
-      script.onload = function () { if (window.SC && SC.Widget) resolve(SC); else { widgetPromise = null; reject(new Error('SoundCloud player failed to load')); } };
-      script.onerror = function () { widgetPromise = null; reject(new Error('Cannot load the SoundCloud player')); };
+      script.onload = function () { clearTimeout(timer); if (window.SC && SC.Widget) resolve(SC); else { widgetPromise = null; reject(new Error('SoundCloud player failed to load')); } };
+      script.onerror = function () { clearTimeout(timer); widgetPromise = null; reject(new Error('Cannot load the SoundCloud player')); };
       document.head.appendChild(script);
     }); return widgetPromise;
   }
@@ -43,7 +46,9 @@
     }
     var url = 'https://soundcloud.com' + link.pathname;
     BitChordPlayer.notify('Loading the official SoundCloud player…');
+    var request = ++pendingGeneration;
     widgetAPI().then(function (SC) {
+      if (request !== pendingGeneration) return;
       var host = el('soundcloud-embed'), frame = document.createElement('iframe'); frame.title = 'SoundCloud player'; frame.allow = 'autoplay';
       frame.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(url) + '&auto_play=true&show_user=true&show_artwork=true';
       var widget, active = true;
